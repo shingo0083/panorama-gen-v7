@@ -46,6 +46,19 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Insufficient Balance. Please recharge." }, { status: 402 });
         }
 
+        // [新增] 速率限制：每 15 秒只能生成一次 (Cooldown)
+        const lastLog = user.logs[0];
+        if (lastLog) {
+            const timeDiff = Date.now() - new Date(lastLog.createdAt).getTime();
+            // 15000 毫秒 = 15 秒
+            if (timeDiff < 15000) {
+                const waitSeconds = Math.ceil((15000 - timeDiff) / 1000);
+                return NextResponse.json({
+                    error: `生成太快了！请休息 ${waitSeconds} 秒后再试。\n(系统限制：防止拥堵)`
+                }, { status: 429 });
+            }
+        }
+
         // 3. [参数解析]
         const body = await req.json();
         const validation = RequestSchema.safeParse(body);

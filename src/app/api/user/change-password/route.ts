@@ -6,15 +6,18 @@ import bcrypt from 'bcryptjs';
 export async function POST(req: Request) {
     try {
         const session = await auth();
-        if (!session || !session.user?.username) {
+        // [修复] 将 .username 改为 .name
+        // 因为在 auth.ts 中我们做了映射: session.user.name = token.name (即数据库的 username)
+        if (!session || !session.user?.name) {
             return NextResponse.json({ error: "请先登录" }, { status: 401 });
         }
 
         const { oldPassword, newPassword } = await req.json();
 
         // 查找用户
+        // 使用 session.user.name 作为查找依据
         const user = await prisma.user.findUnique({
-            where: { username: session.user.username }
+            where: { username: session.user.name }
         });
 
         if (!user) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
@@ -35,6 +38,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true });
 
     } catch (error) {
-        return NextResponse.json({ error: "修改失败" }, { status: 500 });
+        console.error("Change Password Error:", error);
+        return NextResponse.json({ error: "修改失败，系统异常" }, { status: 500 });
     }
 }

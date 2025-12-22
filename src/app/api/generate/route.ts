@@ -39,14 +39,13 @@ export async function POST(req: NextRequest) {
         }
 
         // 2. [查询用户 + 余额预检 + 速率限制检查]
-        // 关键修复：必须加上 include: { logs: ... }，否则 TS 会报错，逻辑也会失效
         const user = await prisma.user.findUnique({
             where: { username: session.user.name },
             include: {
                 logs: {
-                    where: { action: "GENERATE" }, // 只查生图记录，不查充值记录
+                    where: { action: "GENERATE" },
                     orderBy: { createdAt: 'desc' },
-                    take: 1 // 只取最近的一条
+                    take: 1
                 }
             }
         });
@@ -59,11 +58,11 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "余额不足 (Insufficient Balance)" }, { status: 402 });
         }
 
-        // [速率限制逻辑]：每 15 秒 1 次 (防止 20 人同时点击触发 Gemini 15 RPM 熔断)
-        const lastLog = user.logs[0]; // 因为上面加了 include，这里就不会报错了
+        // [速率限制逻辑]：每 15 秒 1 次
+        const lastLog = user.logs[0];
         if (lastLog) {
             const timeDiff = Date.now() - new Date(lastLog.createdAt).getTime();
-            const COOLDOWN = 15000; // 15秒冷却
+            const COOLDOWN = 15000;
             if (timeDiff < COOLDOWN) {
                 const waitSeconds = Math.ceil((COOLDOWN - timeDiff) / 1000);
                 return NextResponse.json({
@@ -84,7 +83,7 @@ export async function POST(req: NextRequest) {
         if (!apiKey) return NextResponse.json({ error: "Config Error" }, { status: 500 });
 
         // 4. [构建Prompt]
-        // 强制类型转换以匹配 keyof
+        // 强制类型转换以匹配 keyof typeof PromptBuilder
         const modeKey = params.mode as keyof typeof PromptBuilder;
         const builder = PromptBuilder[modeKey];
         if (!builder) return NextResponse.json({ error: `Unsupported mode` }, { status: 400 });
@@ -94,11 +93,12 @@ export async function POST(req: NextRequest) {
         const modelId = "gemini-3-pro-image-preview";
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
 
-        // 来源检查 (安全层)
+        // 来源检查 (生产环境安全层)
         if (process.env.NODE_ENV === 'production') {
             const referer = req.headers.get('referer') || '';
             const origin = req.headers.get('origin') || '';
-            const allowedDomain = 'panorama-gen-v7.vercel.app'; // 替换为你的真实域名
+            // 🚨 请确保这里的域名与您实际部署的域名一致
+            const allowedDomain = 'panorama-gen-v7.vercel.app';
             const isAllowed = referer.includes(allowedDomain) || origin.includes(allowedDomain);
             if (!isAllowed) console.warn(`[Security Warning] Request from ${referer}`);
         }
@@ -114,7 +114,6 @@ export async function POST(req: NextRequest) {
 
         if (!fetchRes.ok) {
             const errText = await fetchRes.text();
-            // 捕获 Google 的 429 (Resource Exhausted) 并优雅返回
             if (fetchRes.status === 429) {
                 throw new Error("服务繁忙 (Google API Busy)，请稍后再试");
             }
@@ -137,27 +136,22 @@ export async function POST(req: NextRequest) {
         const inputTokens = usage.promptTokenCount || 0;
         const outputTokens = usage.candidatesTokenCount || 0;
 
-        // [策略 C]：模式差异化定价
-        // 漫改、格斗、暗黑模式属于“高溢价”内容
+        // [策略]：模式差异化定价
         const premiumModes = ['arcade', 'comic', 'dark'];
         const isPremium = premiumModes.includes(params.mode);
 
-        // [策略 A]：输入/输出分离计价 (基于 1USD ≈ 21428 pts 的成本模型)
-        // 输入成本极低，设为 1.0 (高利润缓冲)
+        // [策略]：输入/输出分离计价 (基于 1USD ≈ 21428 pts)
         const inputRate = 1.0;
-
-        // 输出成本极高 ($120/1M)，成本价约 2.6 pts/token
-        // 标准模式定为 4.0 (35% 毛利), 高级模式定为 5.0 (48% 毛利)
-        const outputRate = isPremium ? 5.0 : 4.0;
+        const outputRate = isPremium ? 5.0 : 4.0; // 输出加权 x4.0 / x5.0
 
         // 计算总消耗
         let calculatedCost = Math.ceil(
             (inputTokens * inputRate) + (outputTokens * outputRate)
         );
 
-        // [保底机制]：防止 API 异常返回极少 Token 导致扣费过低
-        // 标准图最低 2500，高级图最低 3500
+        // [保底机制]
         const minCost = isPremium ? 3500 : 2500;
+        // 🔴 这里的变量名是 finalCost
         const finalCost = Math.max(calculatedCost, minCost);
 
         const updatedUser = await prisma.user.update({
@@ -178,14 +172,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             image_base64: imgBase64,
             generated_prompt: promptText,
+            // 🔴 修复点：这里显式指定键值对 cost: finalCost
             billing: { cost: finalCost, balance: updatedUser.balance }
-        });
-
-        // 7. 返回
-        return NextResponse.json({
-            image_base64: imgBase64,
-            generated_prompt: promptText,
-            billing: { cost, balance: updatedUser.balance }
         });
 
     } catch (error: any) {

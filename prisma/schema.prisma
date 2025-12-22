@@ -1,0 +1,68 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // 使用通用连接串 (兼容 Vercel Postgres 和普通 PG)
+  url       = env("POSTGRES_URL")
+  directUrl = env("POSTGRES_URL")
+}
+
+// 1. 用户表 (User)
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique
+  email         String?   @unique  // [新增] 邮箱，设为可选是为了兼容老数据，但新注册必填
+  emailVerified DateTime?          // [新增] 验证时间，空代表未验证
+  password      String
+  role          String    @default("USER")
+  balance       Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  // 关联关系
+  logs          UsageLog[]
+  redeemedCodes RedeemCode[]
+}
+
+// 2. 消费/充值流水表 (UsageLog)
+model UsageLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  action    String   // GENERATE, RECHARGE, WELCOME_GIFT
+  amount    Int
+  prompt    String?
+  note      String?
+  
+  createdAt DateTime @default(now())
+}
+
+// 3. [新增] 验证令牌表 (用于邮箱验证/找回密码)
+model VerificationToken {
+  identifier String   // 邮箱地址
+  token      String   @unique
+  expires    DateTime // 过期时间
+
+  // 联合唯一索引，确保一个邮箱对应一个 Token 不重复
+  @@unique([identifier, token])
+}
+
+// 4. [新增] 兑换码表
+model RedeemCode {
+  id           String    @id @default(cuid())
+  code         String    @unique               // 兑换码本身 (如 V7-ABCD-1234)
+  value        Int                             // 面值 (如 10000, 50000)
+  type         String    @default("NORMAL")    // NORMAL, GIFT, VIP
+  status       String    @default("ACTIVE")    // ACTIVE (可用), USED (已用), DISABLED (禁用)
+  
+  // 谁用了这个码？
+  usedByUserId String?
+  usedBy       User?     @relation(fields: [usedByUserId], references: [id])
+  usedAt       DateTime? // 使用时间
+
+  createdAt    DateTime  @default(now())
+}

@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { PromptBuilder, GenerateParams } from '@/lib/prompt-engine';
+import { auth } from "@/auth"; // [New]
+import { prisma } from "@/lib/db"; // [New]
 
-// 1. 定义极其严格的入参校验规则 (Schema)
 const RequestSchema = z.object({
-    image_data: z.string().min(100, "图片数据不能为空"), // Base64
+    image_data: z.string().min(100),
     params: z.object({
-        // 必填项
         mode: z.enum(['hanfu', 'qipao', 'dark', 'arcade', 'comic', 'general']),
-
-        // 通用选填项
         dynasty: z.string().optional(),
         inner: z.string().optional(),
         items: z.string().optional(),
@@ -22,8 +20,6 @@ const RequestSchema = z.object({
         style: z.string().optional(),
         gen_inner: z.string().optional(),
         accessorySet: z.enum(['A', 'B']).optional(),
-
-        // 街机/漫改特有项
         arc_role: z.string().optional(),
         arc_vfx: z.string().optional(),
         arc_color: z.string().optional(),
@@ -33,103 +29,98 @@ const RequestSchema = z.object({
     })
 });
 
-// 2. POST 处理函数
 export async function POST(req: NextRequest) {
     try {
-        // 解析请求体
-        const body = await req.json();
-
-        // 使用 Zod 进行校验
-        const validation = RequestSchema.safeParse(body);
-
-        if (!validation.success) {
-            // 校验失败，直接返回 400 错误详情
-            return NextResponse.json(
-                { error: "Invalid Request Parameters", details: validation.error.format() },
-                { status: 400 }
-            );
+        // 1. [身份验证]
+        const session = await auth();
+        if (!session || !session.user?.username) {
+            return NextResponse.json({ error: "Unauthorized: Please login" }, { status: 401 });
         }
 
+        // 2. [余额预检] 至少要有 1000 积分才能发起请求（防白嫖）
+        const user = await prisma.user.findUnique({ where: { username: session.user.username } });
+        if (!user || user.balance < 1000) {
+            return NextResponse.json({ error: "Insufficient Balance. Please recharge." }, { status: 402 });
+        }
+
+        // 3. [参数解析]
+        const body = await req.json();
+        const validation = RequestSchema.safeParse(body);
+        if (!validation.success) {
+            return NextResponse.json({ error: "Invalid Request", details: validation.error.format() }, { status: 400 });
+        }
         const { image_data, params } = validation.data;
         const apiKey = process.env.GEMINI_API_KEY;
 
-        if (!apiKey) {
-            return NextResponse.json({ error: "Server Configuration Error: Missing API Key" }, { status: 500 });
-        }
+        if (!apiKey) return NextResponse.json({ error: "Config Error" }, { status: 500 });
 
-        // 3. 调用 Prompt 引擎生成提示词
-        // TypeScript 可能会提示索引签名问题，这里使用 as keyof typeof 确保类型安全
+        // 4. [构建Prompt]
         const modeKey = params.mode as keyof typeof PromptBuilder;
         const builder = PromptBuilder[modeKey];
-
-        if (!builder) {
-            return NextResponse.json({ error: `Unsupported mode: ${params.mode}` }, { status: 400 });
-        }
-
-        // 生成提示词
+        if (!builder) return NextResponse.json({ error: `Unsupported mode` }, { status: 400 });
         const promptText = builder(params as GenerateParams);
 
-        // 4. 请求 Google Gemini API
+        // 5. [请求 Gemini]
         const modelId = "gemini-3-pro-image-preview";
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
-
-        const geminiPayload = {
-            contents: [{
-                parts: [
-                    { text: promptText },
-                    { inlineData: { mimeType: "image/jpeg", data: image_data } }
-                ]
-            }],
-            generationConfig: {
-                temperature: 0.9,
-                topK: 40,
-                topP: 0.95,
-                responseMimeType: "text/plain"
-            }
-        };
 
         const fetchRes = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(geminiPayload)
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: promptText }, { inlineData: { mimeType: "image/jpeg", data: image_data } }] }],
+                generationConfig: { temperature: 0.9 }
+            })
         });
 
-        if (!fetchRes.ok) {
-            const errorText = await fetchRes.text();
-            throw new Error(`Gemini API Error (${fetchRes.status}): ${errorText}`);
-        }
-
+        if (!fetchRes.ok) throw new Error(await fetchRes.text());
         const data = await fetchRes.json();
+        const candidate = data.candidates?.[0];
 
-        // 5. 结果处理与安全检查
-        if (!data.candidates || data.candidates.length === 0) {
-            throw new Error("No candidates returned from model.");
-        }
-
-        const candidate = data.candidates[0];
-
-        // 安全拦截检查
-        if (candidate.finishReason === 'SAFETY') {
-            throw new Error("生成失败：触发了安全审查 (Safety Filter)。请尝试调整提示词或人设。");
+        // Safety Check
+        if (!candidate || candidate.finishReason === 'SAFETY') {
+            throw new Error("Generate Failed: Safety Filter Triggered");
         }
 
         const imgBase64 = candidate.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
+        if (!imgBase64) throw new Error("No image returned");
 
-        if (!imgBase64) {
-            throw new Error("Model returned no image data.");
-        }
+        // 6. [计费核心逻辑] The Billing Engine
+        // 获取实际 Token 消耗
+        const usage = data.usageMetadata || {};
+        const inputTokens = usage.promptTokenCount || 0;
+        const outputTokens = usage.candidatesTokenCount || 0;
+        const totalTokens = inputTokens + outputTokens;
 
-        // 6. 返回成功结果 (图片 + 完整Prompt)
+        // 计算扣费 (1.45 倍率)
+        // 如果 API 没返回 metadata，则默认扣除 3000 点
+        const cost = totalTokens > 0 ? Math.ceil(totalTokens * 1.45) : 3000;
+
+        // 执行数据库事务 (扣费 + 记账)
+        const updatedUser = await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                balance: { decrement: cost },
+                logs: {
+                    create: {
+                        action: "GENERATE",
+                        amount: -cost,
+                        note: `${params.mode} mode (${cost} pts)`
+                    }
+                }
+            }
+        });
+
+        // 7. 返回
         return NextResponse.json({
             image_base64: imgBase64,
-            generated_prompt: promptText
+            generated_prompt: promptText,
+            // 返回本次消耗和剩余，方便前端更新UI（可选）
+            billing: { cost, balance: updatedUser.balance }
         });
 
     } catch (error: any) {
         console.error("[API Error]", error);
-        return NextResponse.json(
-            { error: error.message || "Internal Server Error" },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: error.message || "Server Error" }, { status: 500 });
     }
 }

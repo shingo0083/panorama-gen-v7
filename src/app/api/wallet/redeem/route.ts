@@ -11,10 +11,14 @@ export async function POST(req: NextRequest) {
     try {
         // 1. 验证登录
         const session = await auth();
-        // [修复] user.name
-        if (!session || !session.user?.name) {
+
+        // 检查 Session 完整性
+        if (!session || !session.user || !session.user.name) {
             return NextResponse.json({ error: "请先登录" }, { status: 401 });
         }
+
+        // [修复关键点] 提取变量：在此处将用户名存为常量，TypeScript 就能确信它不为空了
+        const currentUsername = session.user.name;
 
         // 2. 验证参数
         const body = await req.json();
@@ -33,10 +37,11 @@ export async function POST(req: NextRequest) {
                 throw new Error("兑换码已被使用或过期");
             }
 
-            // [修复] 使用 session.user.name 查询数据库
+            // [修复关键点] 在这里使用 currentUsername，而不是 session.user.name
             const user = await tx.user.findUnique({
-                where: { username: session.user.name as string }
+                where: { username: currentUsername }
             });
+
             if (!user) throw new Error("用户账户异常");
 
             await tx.redeemCode.update({

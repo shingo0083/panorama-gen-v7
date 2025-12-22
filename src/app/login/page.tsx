@@ -50,8 +50,8 @@ export default function LoginPage() {
           <div>
             <div className="flex justify-between items-center mb-1">
               <label className="block text-sm font-medium text-slate-600">密码</label>
-              {/* [修改 1] 忘记密码链接 */}
-              <Link href="/forgot-password" classNam="text-xs text-indigo-500 hover:text-indigo-700 hover:underline tabindex='-1'">
+              {/* [修复] 这里修正为 className */}
+              <Link href="/forgot-password" className="text-xs text-indigo-500 hover:text-indigo-700 hover:underline" tabIndex={-1}>
                 忘记密码?
               </Link>
             </div>

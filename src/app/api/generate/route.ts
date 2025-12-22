@@ -132,29 +132,53 @@ export async function POST(req: NextRequest) {
         const imgBase64 = candidate.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
         if (!imgBase64) throw new Error("No image returned");
 
-        // 6. [计费核心逻辑]
+        // 6. [计费核心逻辑] 商业级动态加权 (V7.1 Smart Pricing)
         const usage = data.usageMetadata || {};
         const inputTokens = usage.promptTokenCount || 0;
         const outputTokens = usage.candidatesTokenCount || 0;
-        const totalTokens = inputTokens + outputTokens;
 
-        // 计算扣费 (1.45 倍率，若无 metadata 则保底扣 3000)
-        const cost = totalTokens > 0 ? Math.ceil(totalTokens * 1.45) : 3000;
+        // [策略 C]：模式差异化定价
+        // 漫改、格斗、暗黑模式属于“高溢价”内容
+        const premiumModes = ['arcade', 'comic', 'dark'];
+        const isPremium = premiumModes.includes(params.mode);
 
-        // 执行数据库更新 (扣费 + 记账)
-        // 这里不用 transaction 是因为我们已经在第 2 步检查过余额了，并发风险在冷却时间内可忽略
+        // [策略 A]：输入/输出分离计价 (基于 1USD ≈ 21428 pts 的成本模型)
+        // 输入成本极低，设为 1.0 (高利润缓冲)
+        const inputRate = 1.0;
+
+        // 输出成本极高 ($120/1M)，成本价约 2.6 pts/token
+        // 标准模式定为 4.0 (35% 毛利), 高级模式定为 5.0 (48% 毛利)
+        const outputRate = isPremium ? 5.0 : 4.0;
+
+        // 计算总消耗
+        let calculatedCost = Math.ceil(
+            (inputTokens * inputRate) + (outputTokens * outputRate)
+        );
+
+        // [保底机制]：防止 API 异常返回极少 Token 导致扣费过低
+        // 标准图最低 2500，高级图最低 3500
+        const minCost = isPremium ? 3500 : 2500;
+        const finalCost = Math.max(calculatedCost, minCost);
+
         const updatedUser = await prisma.user.update({
             where: { id: user.id },
             data: {
-                balance: { decrement: cost },
+                balance: { decrement: finalCost },
                 logs: {
                     create: {
                         action: "GENERATE",
-                        amount: -cost,
-                        note: `${params.mode} mode (${cost} pts)`
+                        amount: -finalCost,
+                        note: `${params.mode.toUpperCase()} [In:${inputTokens}/Out:${outputTokens}]`
                     }
                 }
             }
+        });
+
+        // 7. 返回
+        return NextResponse.json({
+            image_base64: imgBase64,
+            generated_prompt: promptText,
+            billing: { cost: finalCost, balance: updatedUser.balance }
         });
 
         // 7. 返回

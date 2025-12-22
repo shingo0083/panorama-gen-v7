@@ -123,24 +123,27 @@ export default async function DashboardPage() {
             {/* Our Pricing */}
             <div className="p-8 space-y-4 bg-indigo-50/30">
               <div className="flex items-center justify-between mb-4">
-                <h4 className="font-bold text-indigo-600 text-sm uppercase tracking-wide">本平台特权费率</h4>
-                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">1.25x Dynamic</span>
+                <h4 className="font-bold text-indigo-600 text-sm uppercase tracking-wide">平台算力计费 (V7.1)</h4>
+                <span className="px-2 py-0.5 bg-indigo-600 text-white text-xs font-bold rounded">Smart Weighted</span>
               </div>
               <ul className="space-y-3 text-sm text-slate-500">
-                <li className="flex justify-between items-center">
-                  <span>计费倍率</span>
-                  <span className="font-mono font-bold text-indigo-600 text-lg">1.25 倍</span>
+                <li className="flex justify-between items-start">
+                  <span>核心算法</span>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-slate-800">动态输入/输出加权</span>
+                    <div className="text-xs text-slate-400 mt-1">Input x1.0 + Output x(4.0~5.0)</div>
+                  </div>
                 </li>
-                <li className="text-xs leading-relaxed text-slate-400">
-                  * 包含：Prompt 工程优化、服务器运维、无需魔法连接、中转加速服务。
+                <li className="text-xs leading-relaxed text-indigo-400 bg-white p-3 rounded border border-indigo-100">
+                  * 为什么这么定价？Gemini 3 Pro 的<span className="font-bold">图片生成(输出)</span>成本极高。为了维持服务，我们对昂贵的“输出算力”应用了较高的权重，而对“输入算力”保持原价。
                 </li>
                 <li className="pt-2 border-t border-indigo-100 mt-2 flex justify-between">
-                  <span>普通生图 (约)</span>
-                  <span className="font-mono text-slate-800">~ 2,500 pts</span>
+                  <span>标准生图 (汉服/旗袍)</span>
+                  <span className="font-mono text-slate-800">~ 2,800 pts</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>漫改精绘 (约)</span>
-                  <span className="font-mono text-slate-800">~ 4,500 pts</span>
+                  <span>高级渲染 (漫改/格斗)</span>
+                  <span className="font-mono text-indigo-600 font-bold">~ 4,500 pts</span>
                 </li>
               </ul>
             </div>
@@ -169,8 +172,8 @@ export default async function DashboardPage() {
                     <td className="px-6 py-4 text-slate-500">{log.createdAt.toLocaleString()}</td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${log.action.includes('RECHARGE') || log.action.includes('GIFT')
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-slate-100 text-slate-600'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-slate-100 text-slate-600'
                         }`}>
                         {log.action}
                       </span>

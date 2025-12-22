@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { PromptBuilder, GenerateParams } from '@/lib/prompt-engine';
-import { auth } from "@/auth"; // [New]
-import { prisma } from "@/lib/db"; // [New]
+import { auth } from "@/auth";
+import { prisma } from "@/lib/db";
 
 const RequestSchema = z.object({
     image_data: z.string().min(100),
@@ -33,12 +33,15 @@ export async function POST(req: NextRequest) {
     try {
         // 1. [身份验证]
         const session = await auth();
-        if (!session || !session.user?.username) {
+        // [修复]: 使用 session.user.name 代替 username
+        if (!session || !session.user?.name) {
             return NextResponse.json({ error: "Unauthorized: Please login" }, { status: 401 });
         }
 
-        // 2. [余额预检] 至少要有 1000 积分才能发起请求（防白嫖）
-        const user = await prisma.user.findUnique({ where: { username: session.user.username } });
+        // 2. [余额预检] 
+        // [修复]: Prisma 查询时，用 session.user.name (它存的是用户名) 去匹配数据库的 username 字段
+        const user = await prisma.user.findUnique({ where: { username: session.user.name } });
+
         if (!user || user.balance < 1000) {
             return NextResponse.json({ error: "Insufficient Balance. Please recharge." }, { status: 402 });
         }
@@ -75,6 +78,11 @@ export async function POST(req: NextRequest) {
 
         if (!fetchRes.ok) throw new Error(await fetchRes.text());
         const data = await fetchRes.json();
+
+        if (!data.candidates || data.candidates.length === 0) {
+            throw new Error("No candidates returned from model.");
+        }
+
         const candidate = data.candidates?.[0];
 
         // Safety Check
@@ -85,18 +93,14 @@ export async function POST(req: NextRequest) {
         const imgBase64 = candidate.content?.parts?.find((p: any) => p.inlineData)?.inlineData?.data;
         if (!imgBase64) throw new Error("No image returned");
 
-        // 6. [计费核心逻辑] The Billing Engine
-        // 获取实际 Token 消耗
+        // 6. [计费核心逻辑]
         const usage = data.usageMetadata || {};
         const inputTokens = usage.promptTokenCount || 0;
         const outputTokens = usage.candidatesTokenCount || 0;
         const totalTokens = inputTokens + outputTokens;
 
-        // 计算扣费 (1.45 倍率)
-        // 如果 API 没返回 metadata，则默认扣除 3000 点
         const cost = totalTokens > 0 ? Math.ceil(totalTokens * 1.45) : 3000;
 
-        // 执行数据库事务 (扣费 + 记账)
         const updatedUser = await prisma.user.update({
             where: { id: user.id },
             data: {
@@ -115,7 +119,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             image_base64: imgBase64,
             generated_prompt: promptText,
-            // 返回本次消耗和剩余，方便前端更新UI（可选）
             billing: { cost, balance: updatedUser.balance }
         });
 

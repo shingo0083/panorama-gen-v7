@@ -11,7 +11,8 @@ export async function POST(req: NextRequest) {
     try {
         // 1. 验证登录
         const session = await auth();
-        if (!session || !session.user?.username) {
+        // [修复] user.name
+        if (!session || !session.user?.name) {
             return NextResponse.json({ error: "请先登录" }, { status: 401 });
         }
 
@@ -19,15 +20,12 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const { code } = RedeemSchema.parse(body);
 
-        // 3. 执行原子交易 (Atomic Transaction)
-        // 这一步确保数据的绝对安全
+        // 3. 执行原子交易
         const result = await prisma.$transaction(async (tx) => {
-            // A. 查找并锁定兑换码
             const redeemCode = await tx.redeemCode.findUnique({
                 where: { code }
             });
 
-            // B. 各种校验
             if (!redeemCode) {
                 throw new Error("无效的兑换码");
             }
@@ -35,13 +33,12 @@ export async function POST(req: NextRequest) {
                 throw new Error("兑换码已被使用或过期");
             }
 
-            // C. 获取用户ID
+            // [修复] 使用 session.user.name 查询数据库
             const user = await tx.user.findUnique({
-                where: { username: session.user.username! } // Non-null asserted because of check #1
+                where: { username: session.user.name as string }
             });
             if (!user) throw new Error("用户账户异常");
 
-            // D. 更新兑换码状态 -> USED
             await tx.redeemCode.update({
                 where: { id: redeemCode.id },
                 data: {
@@ -51,7 +48,6 @@ export async function POST(req: NextRequest) {
                 }
             });
 
-            // E. 给用户加分
             const updatedUser = await tx.user.update({
                 where: { id: user.id },
                 data: {
@@ -59,7 +55,6 @@ export async function POST(req: NextRequest) {
                 }
             });
 
-            // F. 写入流水日志
             await tx.usageLog.create({
                 data: {
                     userId: user.id,

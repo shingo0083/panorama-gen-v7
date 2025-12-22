@@ -1,12 +1,13 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation'; // [New] 用于跳转
-import { Sparkles, Copy, Check, Download, AlertCircle, X, User, CreditCard } from 'lucide-react'; // [New] 图标
+import { useRouter } from 'next/navigation';
+import { Sparkles, Copy, Check, Download, AlertCircle, X, User, CreditCard, LogIn, LogOut } from 'lucide-react';
+import { signOut, useSession, getSession } from "next-auth/react"; // 引入signOut
 import UploadZone from '@/components/UploadZone';
 import ControlPanel from '@/components/ControlPanel';
 import { ModeType } from '@/lib/constants';
 
-// 默认配置生成器
+// 默认配置
 const getDefaultConfig = (mode: ModeType) => {
   const base = { cup: 'C Cup', body_type: '自动推算', face_desc: '', outer_desc: '', desc: '' };
   switch (mode) {
@@ -20,12 +21,12 @@ const getDefaultConfig = (mode: ModeType) => {
 };
 
 export default function Home() {
-  const router = useRouter(); // [New]
+  const router = useRouter();
   const [mode, setMode] = useState<ModeType>('hanfu');
   const [config, setConfig] = useState<any>(getDefaultConfig('hanfu'));
   const [imageData, setImageData] = useState<string | null>(null);
 
-  // 结果状态
+  // 状态
   const [loading, setLoading] = useState(false);
   const [resultImg, setResultImg] = useState<string | null>(null);
   const [terminalText, setTerminalText] = useState<string>('');
@@ -33,11 +34,25 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
-  // 切换模式时重置
+  // [修改 2] 用户登录状态检测
+  const [user, setUser] = useState<any>(null);
+
   useEffect(() => {
     setConfig(getDefaultConfig(mode));
     setTerminalText('');
+
+    // Check Session on mount
+    getSession().then((session) => {
+      if (session?.user) setUser(session.user);
+    });
   }, [mode]);
+
+  // 登出处理
+  const handleLogout = async () => {
+    await signOut({ redirect: false });
+    setUser(null);
+    router.refresh();
+  };
 
   const handleClearImage = () => {
     setImageData(null);
@@ -46,6 +61,14 @@ export default function Home() {
   };
 
   const handleGenerate = async () => {
+    // [修改 2] 登录拦截
+    if (!user) {
+      if (confirm("您尚未登录。\n注册即送 10,000 积分体验，是否前往注册？")) {
+        router.push('/register');
+      }
+      return;
+    }
+
     if (!imageData) {
       alert("请先上传参考图片");
       return;
@@ -68,19 +91,18 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        // 如果是余额不足 (402)，提示充值
         if (res.status === 402) {
-          if (confirm("余额不足！是否前往控制台充值？")) {
-            router.push('/dashboard');
-          }
+          if (confirm("余额不足！是否前往控制台充值？")) router.push('/dashboard');
           throw new Error(data.error);
+        }
+        if (res.status === 401) {
+          router.push('/login');
+          throw new Error("请重新登录");
         }
         throw new Error(data.error || "Generate failed");
       }
 
       setResultImg(`data:image/jpeg;base64,${data.image_base64}`);
-
-      // [优化] 显示余额消耗信息
       const costInfo = data.billing ? `消耗: ${data.billing.cost} pts | 剩余: ${data.billing.balance} pts` : "";
       setTerminalText(`✅ 渲染完成!\n------------------\n模式: ${mode.toUpperCase()}\n分辨率: 4K (Upscaled)\n${costInfo}\n\n*提示: 点击右下角按钮保存配方*`);
 
@@ -94,12 +116,7 @@ export default function Home() {
 
   const handleCopy = () => {
     if (!resultImg) return;
-    const safeRecipe = {
-      app_version: "v7.0",
-      mode: mode,
-      settings: config,
-      timestamp: new Date().toLocaleString()
-    };
+    const safeRecipe = { app_version: "v7.0", mode: mode, settings: config, timestamp: new Date().toLocaleString() };
     navigator.clipboard.writeText(JSON.stringify(safeRecipe, null, 2));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -119,7 +136,6 @@ export default function Home() {
   return (
     <main className="min-h-screen w-full flex items-center justify-center bg-[#eef2f6] p-6 text-slate-800 font-sans">
 
-      {/* Workbench Card */}
       <div className="w-full max-w-[1400px] h-[90vh] min-h-[600px] bg-white rounded-2xl shadow-2xl flex overflow-hidden border border-white/60">
 
         {/* LEFT PANEL */}
@@ -131,13 +147,32 @@ export default function Home() {
                 <div className="w-2 h-6 bg-indigo-600 rounded-full"></div>
                 <h1 className="text-lg font-black tracking-tight text-slate-900">设定装配 V7.0</h1>
               </div>
-              {/* [New] Dashboard Link */}
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="text-xs font-bold text-slate-500 hover:text-indigo-600 flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-full hover:border-indigo-300 transition-all"
-              >
-                <User size={14} /> 账户中心
-              </button>
+
+              {/* [修改 2] 动态头部按钮 */}
+              {user ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => router.push('/dashboard')}
+                    className="text-xs font-bold text-slate-600 hover:text-indigo-600 flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-full hover:border-indigo-300 transition-all shadow-sm"
+                  >
+                    <User size={14} /> 用户中心
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="text-xs font-bold text-red-400 hover:text-red-600 flex items-center gap-1 bg-white border border-slate-200 px-2 py-1.5 rounded-full hover:border-red-200 transition-all"
+                    title="退出登录"
+                  >
+                    <LogOut size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => router.push('/register')}
+                  className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 flex items-center gap-1 px-4 py-1.5 rounded-full transition-all shadow-md shadow-indigo-200 animate-pulse"
+                >
+                  <LogIn size={14} /> 注册 / 登录
+                </button>
+              )}
             </div>
 
             <select
@@ -174,7 +209,6 @@ export default function Home() {
 
         {/* RIGHT PANEL */}
         <div className="w-[60%] flex flex-col bg-slate-100 relative">
-          {/* Canvas Area */}
           <div className="flex-1 flex items-center justify-center p-8 relative overflow-hidden bg-[#f1f5f9]">
             <div className="absolute inset-0 opacity-5" style={{ backgroundImage: 'radial-gradient(#94a3b8 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
 
@@ -215,7 +249,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Bottom Terminal */}
           <div className="h-[280px] bg-white border-t border-slate-200 p-6 flex flex-col gap-4 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-20">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
@@ -242,6 +275,7 @@ export default function Home() {
                 onClick={handleCopy}
                 disabled={!resultImg}
                 className="flex-1 border border-slate-200 hover:border-indigo-500 hover:text-indigo-600 text-slate-600 py-3 px-6 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 bg-slate-50 hover:bg-indigo-50 disabled:opacity-50"
+                title="复制当前的配置配方"
               >
                 {copied ? <Check size={18} /> : <Copy size={18} />}
                 {copied ? '已保存' : '保存配置'}
@@ -250,7 +284,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Lightbox Overlay */}
         {lightboxSrc && (
           <div
             className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-8 animate-in fade-in duration-200"

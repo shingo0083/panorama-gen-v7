@@ -28,7 +28,7 @@ export default function LoginPage() {
       if (res?.error) {
         setError("账号或密码错误");
       } else {
-        router.push("/"); // 登录成功跳转首页
+        router.push("/");
         router.refresh();
       }
     } catch (err) {
@@ -39,7 +39,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100">
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 font-sans">
       <div className="bg-white p-8 rounded-xl shadow-lg w-96 border border-slate-200">
         <h1 className="text-2xl font-bold mb-6 text-center text-slate-800">用户登录</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -48,12 +48,18 @@ export default function LoginPage() {
             <input name="username" type="text" required className="w-full p-2 border rounded-md focus:ring-2 focus:ring-indigo-500 outline-none" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">密码</label>
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-sm font-medium text-slate-600">密码</label>
+              {/* [修改 1] 忘记密码链接 */}
+              <Link href="/forgot-password" classNam="text-xs text-indigo-500 hover:text-indigo-700 hover:underline tabindex='-1'">
+                忘记密码?
+              </Link>
+            </div>
             <input name="password" type="password" required className="w-full p-2 border rounded-md focus:ring-2 focus:ring-indigo-500 outline-none" />
           </div>
           {error && <div className="text-red-500 text-sm text-center">{error}</div>}
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
             className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition disabled:opacity-50"
           >
@@ -61,7 +67,7 @@ export default function LoginPage() {
           </button>
         </form>
         <div className="mt-4 text-center text-sm text-slate-500">
-          还没有账号? <Link href="/register" className="text-indigo-600 hover:underline">去注册</Link>
+          还没有账号? <Link href="/register" className="text-indigo-600 hover:underline font-bold">去注册</Link>
         </div>
       </div>
     </div>

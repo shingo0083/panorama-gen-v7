@@ -10,7 +10,7 @@ export async function POST(req: Request) {
         // 1. 查找用户
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) {
-            // 安全策略：即使邮箱不存在，也返回成功，防止恶意扫描邮箱库
+            // 安全策略：即使邮箱不存在，也返回成功，防止恶意扫描
             return NextResponse.json({ success: true });
         }
 
@@ -18,22 +18,22 @@ export async function POST(req: Request) {
         const token = crypto.randomBytes(32).toString('hex');
         const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24小时
 
-        // 3. 写入数据库
-        // 使用 upsert: 如果该邮箱已有 token 则更新，没有则创建
-        await prisma.verificationToken.upsert({
-            where: { identifier: email }, // 修正：基于 schema 定义，我们需要确保 logic 正确
-            // Prisma schema 中的 VerificationToken 主键通常比较复杂
-            // 如果你的 schema 是 @@unique([identifier, token])，我们需要先 delete 再 create 比较稳妥
-            update: { token, expires },
-            create: { identifier: email, token, expires }
-        }).catch(async () => {
-            // 备用方案：如果 upsert 失败（主键冲突），先删旧再加新
-            await prisma.verificationToken.deleteMany({ where: { identifier: email } });
-            await prisma.verificationToken.create({ data: { identifier: email, token, expires } });
-        });
+        // 3. [核心修复] 写入数据库逻辑重构
+        // 废弃 upsert，改用事务：先删除该邮箱旧Token -> 再创建新Token
+        await prisma.$transaction([
+            prisma.verificationToken.deleteMany({
+                where: { identifier: email }
+            }),
+            prisma.verificationToken.create({
+                data: {
+                    identifier: email,
+                    token,
+                    expires
+                }
+            })
+        ]);
 
-        // 4. [核心修复] 获取当前网站的域名 (Base URL)
-        // 优先级：手动配置的 APP_URL > NextAuth URL > Vercel 自动域名 > 本地
+        // 4. 获取当前网站的域名 (Base URL)
         const getBaseUrl = () => {
             if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
             if (process.env.NEXTAUTH_URL) return process.env.NEXTAUTH_URL;
@@ -42,14 +42,14 @@ export async function POST(req: Request) {
         };
 
         const baseUrl = getBaseUrl();
-        // 确保 URL 末尾没有斜杠，防止拼接出 //reset
+        // 确保 URL 末尾没有斜杠
         const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
         
         const resetLink = `${cleanBaseUrl}/reset-password?token=${token}`;
 
-        console.log(`[Password Reset] Link generated: ${resetLink}`);
+        console.log(`[Password Reset] Link generated for ${email}`);
 
-        // 5. 构建邮件内容 (优化按钮点击区域)
+        // 5. 构建邮件内容
         const html = `
             <div style="background-color: #f9f9f9; padding: 20px; font-family: sans-serif;">
                 <div style="max-width: 500px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">

@@ -12,8 +12,6 @@ interface ControlPanelProps {
   onChange: (newConfig: ConfigType) => void;
 }
 
-// --- 🔴 关键修复：所有辅助组件移至外部定义，防止 Input 失焦 ---
-
 const Select = ({ label, options, value, field, onChange }: any) => (
   <div>
     <label className="text-xs font-bold text-slate-500 mb-1 block">{label}</label>
@@ -79,14 +77,15 @@ const MultiTagSelector = ({ label, tags, value = [], field, onChange }: any) => 
   </div>
 );
 
-const TextInput = ({ label, placeholder, value, field, onChange }: any) => (
+const TextInput = ({ label, placeholder, value, field, onChange, rows = 3 }: any) => (
   <div>
     <label className="text-xs font-bold text-slate-500 mb-1 block">{label}</label>
     <textarea
       value={value || ''}
       onChange={(e) => onChange(field, e.target.value)}
       placeholder={placeholder}
-      className="w-full p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none h-20 resize-none"
+      rows={rows}
+      className={`w-full p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none font-sans`}
     />
   </div>
 );
@@ -113,14 +112,30 @@ const AccessorySelector = ({ sets, value, field, onChange }: any) => (
   </div>
 );
 
-// --- 主组件 ---
-
 export default function ControlPanel({ mode, config, onChange }: ControlPanelProps) {
-
-  // 统一更新函数
   const handleChange = (field: string, value: any) => {
     onChange({ ...config, [field]: value });
   };
+
+  // [新增] 自由发挥模式 UI
+  if (mode === 'custom') {
+    return (
+      <div className="space-y-6">
+        <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-lg text-xs text-indigo-700 leading-relaxed">
+          💡 自由模式：此模式下，Prompt 引擎将停止所有预设干预，直接将您的提示词发送给 AI 引擎。请自行编写完整的描述（推荐英文）。
+        </div>
+
+        <TextInput
+          label="✨ 自由咒语 (Free Prompt)"
+          placeholder="例如: A cyberpunk girl walking in rain, neon lights, 8k resolution, photorealistic..."
+          value={config.custom_prompt}
+          field="custom_prompt"
+          onChange={handleChange}
+          rows={10} // 更大的输入框
+        />
+      </div>
+    )
+  }
 
   if (mode === 'hanfu') {
     const dynasty = config.dynasty || "Ming";

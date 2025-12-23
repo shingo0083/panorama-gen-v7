@@ -16,6 +16,9 @@ const getDefaultConfig = (mode: ModeType) => {
     case 'arcade': return { ...base, arc_role: 'Kunoichi', arc_color: '1P', arc_vfx: '无 (None)', pose: '💃 胜利: 摇扇弯腰 (Bouncing)' };
     case 'comic': return { ...base, comic_role: 'Navigator', comic_color: 'Anime', comic_vfx: '无 (None)', pose: '😉 招牌: 俏皮眨眼 (Wink)' };
     default: return { ...base, gen_style: '2D Concept Sketch', gen_inner: 'Context-based', pose: 'Standard Standing' };
+      if (mode === 'custom') {
+        return { custom_prompt: "" };
+      }
   }
 };
 
@@ -175,6 +178,7 @@ export default function Home() {
               <option value="comic">✨ 漫改全明星 (Comic)</option>
               <option value="dark">🖤 深夜放映厅 (Dark)</option>
               <option value="general">🌐 通用·概念拆解 (General)</option>
+              <option value="custom">✨ 自由发挥 (Custom)</option>
             </select>
           </div>
 

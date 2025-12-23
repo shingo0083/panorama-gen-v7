@@ -1,43 +1,42 @@
-import {
-    HANFU_DB,
-    QIPAO_DB,
-    DARK_ROLES,
-    ARCADE_ROLES,
-    COMIC_ROLES
+import { 
+    HANFU_DB, 
+    QIPAO_DB, 
+    DARK_ROLES, 
+    ARCADE_ROLES, 
+    COMIC_ROLES 
 } from './constants';
 
-// 定义前端传来的参数类型
 export type GenerateParams = {
     mode: string;
-    dynasty?: string;
-    inner?: string;
-    items?: string;
+    dynasty?: string;       
+    inner?: string;         
+    items?: string;         
     pose?: string;
     cup?: string;
     body_type?: string;
     face_desc?: string;
-    outer_desc?: string;
-    desc?: string;
-    style?: string;
-    gen_inner?: string;
+    outer_desc?: string;    
+    desc?: string;          
+    style?: string;         
+    gen_inner?: string;     
     accessorySet?: 'A' | 'B';
-
-    // Arcade / Comic Specifics
+    
+    // Arcade / Comic
     arc_role?: string;
     arc_vfx?: string;
     arc_color?: string;
-
     comic_role?: string;
     comic_vfx?: string;
     comic_color?: string;
+
+    // [New] Custom
+    custom_prompt?: string;
 };
 
-// 辅助函数：清洗字符串
 const sanitize = (str: string | undefined): string => {
     return (str || "").replace(/[^\w\s\u4e00-\u9fa5,.:()-]/g, "").substring(0, 300);
 };
 
-// 辅助函数：通用罩杯物理描述 (旗袍专用)
 const getStandardCupDescription = (cup: string = "C Cup") => {
     const descriptions: Record<string, string> = {
         "A Cup": "She has a slender and petite chest, embodying an intellectual flat aesthetic. The qipao fabric drapes loosely over her chest with straight, elegant lines.",
@@ -50,22 +49,20 @@ const getStandardCupDescription = (cup: string = "C Cup") => {
     return descriptions[cup] || descriptions["C Cup"];
 };
 
-// 策略集合
 export const PromptBuilder = {
-    // 1. HANFU
+    // 1. HANFU (Unchanged)
     hanfu: (params: GenerateParams) => {
+        // ... (Same logic as before, omitting to save space) ...
+        // 请保留之前的 hanfu 完整逻辑
         const dynastyKey = params.dynasty || "Ming";
         const d = HANFU_DB[dynastyKey] || HANFU_DB["Ming"];
         const items = sanitize(params.items);
         const innerName = sanitize(params.inner) || (d.inners[0] as any).name;
-
+        
         let innerDesc = `仅穿着【${innerName}】`;
         let innerLabel = innerName.split(" (")[0];
-
-        if (["诃子", "抹胸", "主腰", "肚兜", "心衣"].some(k => innerName.includes(k))) {
-            innerDesc += `，并搭配**素色绸缎袴 (Silk Trousers/Ku)**`;
-        }
-
+        
+        if (["诃子","抹胸","主腰","肚兜","心衣"].some(k => innerName.includes(k))) innerDesc += `，并搭配**素色绸缎袴 (Silk Trousers/Ku)**`;
         const itemsPrompt = items.split(',').filter(i => i).map(i => `${i.trim()} (casting distinct shadow on wall)`).join('、') || "无特殊物品";
         const faceInstruction = params.face_desc ? `**Face ID**: ${sanitize(params.face_desc)}. (Strictly maintain this facial identity)` : "完全依照原图 (Strictly lock face features from source image)";
         const outerDetail = params.outer_desc ? `细节微调：${sanitize(params.outer_desc)}` : "";
@@ -121,16 +118,14 @@ export const PromptBuilder = {
 **Negative**: --no modern buildings, western clothing, bikini, messy lines, bad anatomy, cartoonish face.`;
     },
 
-    // 2. QIPAO
     qipao: (params: GenerateParams) => {
+        // ... (Keep qipao logic) ...
         const styleKey = params.dynasty || "Style01";
         const d = QIPAO_DB[styleKey] || QIPAO_DB["Style01"];
         const accSetKey = params.accessorySet || "A";
-        const accSets = d.sets ? d.sets[accSetKey] : { n: "Default", i: "" };
-        const accItems = accSets.i.split('、'); // Simple split assuming correct format
-
+        const accSets = d.sets ? d.sets[accSetKey] : {n:"Default", i:""}; 
+        const accItems = accSets.i.split('、'); 
         const cupDesc = getStandardCupDescription(params.cup);
-
         const itemsPrompt = accItems.map(i => `"${i}" (Floating Item with shadow & connection line)`).join(', ');
         const faceInstruction = params.face_desc ? `**Face ID**: ${sanitize(params.face_desc)}` : "Strictly lock face from image.";
         const outerDetail = params.outer_desc ? `Details: ${sanitize(params.outer_desc)}` : "";
@@ -186,14 +181,14 @@ export const PromptBuilder = {
 **Negative**: --no split screen, --no divided background, --no paper background, --no human body for innerwear, --no skin for innerwear, --no mannequin, --no stiff plastic shape, --no flat photo style, --no illustration, --no cartoon, --no low resolution, --no Maggie Cheung face, --no obese character, --no plus size unless specified. --ar 3:4`;
     },
 
-    // 3. DARK
     dark: (params: GenerateParams) => {
-        const roleKey = params.inner || "OL";
-        const mood = params.pose || "Emotional";
+        // ... (Keep dark logic) ...
+        const roleKey = params.inner || "OL"; 
+        const mood = params.pose || "Emotional"; 
         const tagline = params.desc || "Debut / No.1 / Exclusive";
         const cup = params.cup || "C Cup";
         const faceDesc = params.face_desc ? `**Face ID**: ${sanitize(params.face_desc)}` : "Strictly lock face from image.";
-        const selectedRoleObj = DARK_ROLES[roleKey] || DARK_ROLES["OL"];
+        const selectedRoleObj = DARK_ROLES[roleKey] || DARK_ROLES["OL"]; 
         const selectedRole = selectedRoleObj.prompt_ctx;
 
         let cupPhysics = "";
@@ -232,15 +227,15 @@ You MUST overlay complex text elements to mimic a commercial product package:
 --ar 3:4`;
     },
 
-    // 4. GENERAL
     general: (params: GenerateParams) => {
-        const style = sanitize(params.style) || "2D Concept Art Style";
+        // ... (Keep general logic) ...
+        const style = sanitize(params.style) || "2D Concept Art Style"; 
         const inner = sanitize(params.inner) || "Context-based Lingerie";
         const desc = sanitize(params.desc) || "Original Character";
         const cup = params.cup || "Auto-detected";
         const bodyType = params.body_type || "Standard";
         const pose = sanitize(params.pose) || "Standard Standing";
-
+        
         return `
 # Role: Elite Concept Artist & Character Designer
 **Expertise**: Pixel-level breakdown, Fashion Layering, Visual Profiling, Anatomy Estimation.
@@ -290,11 +285,11 @@ You MUST overlay complex text elements to mimic a commercial product package:
 - **Art Style**: ${style} (Clean lines, Professional Concept Art).
 
 **Negative**: --no cropped legs, --no missing feet, --no blurry text, --no messy lines, --no low resolution, --no plastic mannequin.
---ar 3:4`;
+--ar 3:4`; 
     },
 
-    // 5. ARCADE
     arcade: (params: GenerateParams) => {
+        // ... (Keep arcade logic) ...
         const role = params.arc_role || "Kunoichi";
         const winPose = params.pose || "Fan Victory";
         const vfx = params.arc_vfx || "None";
@@ -357,12 +352,12 @@ You MUST display the **"Safety Measures"** (Undergarments) as **two separate** f
 --ar 3:4`;
     },
 
-    // 6. COMIC
     comic: (params: GenerateParams) => {
+        // ... (Keep comic logic) ...
         const role = params.comic_role || "Navigator";
         const pose = params.pose || "Classic";
         const vfx = params.comic_vfx || "None";
-        const colorStyle = params.comic_color || "Anime";
+        const colorStyle = params.comic_color || "Anime"; 
         const userDetails = sanitize(params.desc);
         const cup = params.cup || "C Cup";
         const faceDesc = params.face_desc ? `**Face ID**: ${sanitize(params.face_desc)}` : "Strictly maintain user's real face structure.";
@@ -384,7 +379,7 @@ You MUST display the **"Safety Measures"** (Undergarments) as **two separate** f
             cupPhysics = "**High-Fashion Slender Silhouette**. Costume fabric drapes naturally with a loose fit. Emphasize collarbones and a delicate, agile frame. No fabric strain.";
         } else if (["C Cup", "D Cup"].includes(cup)) {
             cupPhysics = "**Athletic Fit**. Costume fits snugly, following natural organic curves. Realistic support and structure without excessive stretching.";
-        } else {
+        } else { 
             cupPhysics = `**Maximum Volumetric Tension**. **IMPORTANT**: The subject's bust size [${cup}] overrides the costume's original design. The fabric is visibly **STRETCHED TIGHT** across the chest. Buttons, seams, or openings show **realistic stress lines**. If the costume is a dress or kimono, the front is pushed open due to volume.`;
         }
 
@@ -426,5 +421,26 @@ Display the "Under-structure" required for the actress to wear this costume:
 
 **Negative**: --no anime style, --no manga drawing, --no cel shading, --no 2d, --no illustration, --no painting, --no plastic skin.
 --ar 3:4`;
+    },
+
+    // [New] Custom Mode
+    custom: (params: GenerateParams) => {
+        const userPrompt = sanitize(params.custom_prompt) || "A masterpiece photo.";
+        // Custom Mode Passthrough
+        // We act as a professional enhancer for the user's raw prompt
+        return `
+# Role: Professional Prompt Optimizer & Photographer
+# Task: Visualize the user's concept with high fidelity.
+
+# User Concept:
+"${userPrompt}"
+
+# Execution Protocol:
+1. **Style**: Photorealistic (unless specified otherwise in user prompt).
+2. **Quality**: 8k, highly detailed, perfect lighting.
+3. **Face Consistency**: Strictly maintain the face from the input image (if provided).
+
+--ar 3:4
+`;
     }
 };

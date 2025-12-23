@@ -8,9 +8,15 @@ import { MODE_METADATA } from '@/lib/constants';
 
 const RequestSchema = z.object({
   image_data: z.string().min(100),
-  provider: z.enum(['gemini', 'jimeng']), // [New] 必须指定引擎
+  provider: z.enum(['gemini', 'jimeng']),
   params: z.object({
-    mode: z.enum(['hanfu', 'qipao', 'dark', 'arcade', 'comic', 'general']),
+    mode: z.enum(['hanfu', 'qipao', 'dark', 'arcade', 'comic', 'general', 'custom']), // [Add custom]
+
+    // ... (Keep existing fields) ...
+
+    custom_prompt: z.string().optional(), // [New]
+
+    // ... (Keep existing fields) ...
     dynasty: z.string().optional(),
     inner: z.string().optional(),
     items: z.string().optional(),
@@ -36,26 +42,26 @@ export async function POST(req: NextRequest) {
   try {
     const session = await auth();
     if (!session || !session.user?.name) {
-        return NextResponse.json({ error: "Unauthorized: Please login" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized: Please login" }, { status: 401 });
     }
 
     const user = await prisma.user.findUnique({
-        where: { username: session.user.name },
-        include: {
-            logs: { where: { action: "GENERATE" }, orderBy: { createdAt: 'desc' }, take: 1 }
-        }
+      where: { username: session.user.name },
+      include: {
+        logs: { where: { action: "GENERATE" }, orderBy: { createdAt: 'desc' }, take: 1 }
+      }
     });
-    
+
     if (!user) return NextResponse.json({ error: "账户异常" }, { status: 404 });
     if (user.balance < 1000) return NextResponse.json({ error: "余额不足" }, { status: 402 });
 
-    const lastLog = user.logs[0]; 
+    const lastLog = user.logs[0];
     if (lastLog) {
-        const timeDiff = Date.now() - new Date(lastLog.createdAt).getTime();
-        const COOLDOWN = 10000; // 缩短为 10秒 提升体验
-        if (timeDiff < COOLDOWN) {
-            return NextResponse.json({ error: `操作太快，请稍候...` }, { status: 429 });
-        }
+      const timeDiff = Date.now() - new Date(lastLog.createdAt).getTime();
+      const COOLDOWN = 10000; // 缩短为 10秒 提升体验
+      if (timeDiff < COOLDOWN) {
+        return NextResponse.json({ error: `操作太快，请稍候...` }, { status: 429 });
+      }
     }
 
     const body = await req.json();
@@ -71,21 +77,21 @@ export async function POST(req: NextRequest) {
     const promptText = builder(params as GenerateParams);
 
     let imgBase64 = "";
-    
+
     // --- 核心分支逻辑 ---
     if (provider === 'gemini') {
-        // A. Google Gemini 引擎
-        if (!process.env.GEMINI_API_KEY) throw new Error("Gemini API Key missing");
-        const result = await generateWithGemini(promptText, image_data);
-        imgBase64 = result.image;
-    
+      // A. Google Gemini 引擎
+      if (!process.env.GEMINI_API_KEY) throw new Error("Gemini API Key missing");
+      const result = await generateWithGemini(promptText, image_data);
+      imgBase64 = result.image;
+
     } else {
-        // B. 字节即梦引擎 (Jimeng)
-        // 提示词优化：即梦对英文 Prompt 反应较慢，我们在前面拼接一些强引导词
-        // 且即梦主要基于文生图，我们忽略 image_data
-        const jimengPrompt = `(Masterpiece, Best Quality, 8k wallpaper), ${promptText}`;
-        const result = await generateWithJimeng(jimengPrompt);
-        imgBase64 = result.image;
+      // B. 字节即梦引擎 (Jimeng)
+      // 提示词优化：即梦对英文 Prompt 反应较慢，我们在前面拼接一些强引导词
+      // 且即梦主要基于文生图，我们忽略 image_data
+      const jimengPrompt = `(Masterpiece, Best Quality, 8k wallpaper), ${promptText}`;
+      const result = await generateWithJimeng(jimengPrompt);
+      imgBase64 = result.image;
     }
 
     // --- 统一计费 (一口价模式) ---
@@ -96,23 +102,23 @@ export async function POST(req: NextRequest) {
     const finalCost = isStandard ? 3000 : 4500;
 
     const updatedUser = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-            balance: { decrement: finalCost },
-            logs: {
-                create: {
-                    action: "GENERATE",
-                    amount: -finalCost,
-                    note: `${params.mode.toUpperCase()} via ${provider.toUpperCase()}`
-                }
-            }
+      where: { id: user.id },
+      data: {
+        balance: { decrement: finalCost },
+        logs: {
+          create: {
+            action: "GENERATE",
+            amount: -finalCost,
+            note: `${params.mode.toUpperCase()} via ${provider.toUpperCase()}`
+          }
         }
+      }
     });
 
-    return NextResponse.json({ 
-        image_base64: imgBase64, 
-        generated_prompt: promptText,
-        billing: { cost: finalCost, balance: updatedUser.balance } 
+    return NextResponse.json({
+      image_base64: imgBase64,
+      generated_prompt: promptText,
+      billing: { cost: finalCost, balance: updatedUser.balance }
     });
 
   } catch (error: any) {

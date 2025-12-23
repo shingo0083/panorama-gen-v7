@@ -42,7 +42,7 @@ export async function generateWithGemini(prompt: string, imageBase64: string) {
     };
 }
 
-// 2. Volcengine 即梦引擎 (V4.0 修复版)
+// 2. Volcengine 即梦引擎 (修正 TypeScript 错误版)
 export async function generateWithJimeng(prompt: string) {
     const ak = process.env.VOLC_ACCESS_KEY;
     const sk = process.env.VOLC_SECRET_KEY;
@@ -53,13 +53,13 @@ export async function generateWithJimeng(prompt: string) {
 
     // 初始化 SDK
     const service = new Service({
-        host: 'visual.volcengineapi.com', // 不要加 https://
+        host: 'visual.volcengineapi.com',
         serviceName: 'cv',
         region: 'cn-north-1',
         accessKeyId: ak,
         secretKey: sk,
-        protocol: 'https:', // [关键修正] 显式指定协议
-        timeout: 60000,     // 增加超时时间
+        protocol: 'https:', // [关键] 保留这个协议设置，防止 50402 错误
+        // timeout: 60000,  // [移除] 这里的类型定义不支持 timeout，移除以通过编译
     });
 
     const action = "CVProcess";
@@ -85,7 +85,7 @@ export async function generateWithJimeng(prompt: string) {
     try {
         console.log("[Jimeng V4] Sending Request...");
         
-        // [关键修正] 使用 query 字段明确传递 Action 和 Version
+        // 构造请求
         const fetchParams: any = {
             query: {
                 Action: action,
@@ -93,7 +93,8 @@ export async function generateWithJimeng(prompt: string) {
             },
             method: 'POST',
             data: bodyPayload,
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 60000 // [移到这里] 如果 SDK 支持，Axios配置通常在这里传递；如果不支持也不会报错
         };
 
         const res: any = await service.fetchOpenAPI(fetchParams);

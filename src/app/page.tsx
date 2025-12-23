@@ -27,7 +27,7 @@ export default function Home() {
 
   // 状态
   const [loading, setLoading] = useState(false);
-  const [loadingProvider, setLoadingProvider] = useState<'gemini' | 'jimeng' | null>(null); // [New] 记录当前哪个在跑
+  const [loadingProvider, setLoadingProvider] = useState<'gemini' | 'jimeng' | null>(null);
   const [resultImg, setResultImg] = useState<string | null>(null);
   const [terminalText, setTerminalText] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -53,7 +53,6 @@ export default function Home() {
     setTerminalText('');
   };
 
-  // [修改] 增加 provider 参数
   const handleGenerate = async (provider: 'gemini' | 'jimeng') => {
     if (!user) {
       if (confirm("您尚未登录。\n注册即送 10,000 积分体验，是否前往注册？")) router.push('/register');
@@ -65,29 +64,41 @@ export default function Home() {
     }
 
     setLoading(true);
-    setLoadingProvider(provider); // 标记正在跑的引擎
+    setLoadingProvider(provider);
     setErrorMsg(null);
 
-    // 不同的终端提示词
     const startMsg = provider === 'gemini'
       ? "// 正在连接 Google Gemini (USA)...\n// 正在解析视觉特征..."
       : "// 正在连接字节跳动即梦 (CN)...\n// 正在进行语义重构...";
     setTerminalText(startMsg);
 
     try {
+      // [关键修复] 数据格式化：将前端数组转为后端需要的字符串
+      const formattedParams = { ...config };
+
+      // 针对汉服模式的 items 数组做转换 ( Array -> String )
+      if (Array.isArray(formattedParams.items)) {
+        formattedParams.items = formattedParams.items.join(',');
+      }
+
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           image_data: imageData,
-          params: { mode, ...config },
-          provider: provider // [New] 传递引擎选择
+          params: { mode, ...formattedParams }, // 发送处理过的参数
+          provider: provider
         })
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        // [New] 针对参数错误显示详细信息，方便调试
+        if (res.status === 400 && data.details) {
+          console.error("Validation Details:", data.details);
+          throw new Error("参数格式错误，请检查控制台");
+        }
         if (res.status === 402) {
           if (confirm("余额不足！是否前往控制台充值？")) router.push('/dashboard');
           throw new Error(data.error);
@@ -199,7 +210,7 @@ export default function Home() {
             {errorMsg && <div className="absolute top-10 left-1/2 -translate-x-1/2 bg-red-50 border border-red-200 text-red-600 px-6 py-3 rounded-full shadow-lg flex items-center gap-2 z-50 animate-bounce"><AlertCircle size={18} /><span className="text-sm font-medium">{errorMsg}</span></div>}
           </div>
 
-          {/* [核心修改] Bottom Action Bar */}
+          {/* Bottom Action Bar */}
           <div className="h-[280px] bg-white border-t border-slate-200 p-6 flex flex-col gap-4 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-20">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>

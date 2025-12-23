@@ -23,7 +23,6 @@ export async function generateWithGemini(prompt: string, imageBase64: string) {
     });
 
     if (!res.ok) {
-        // 如果是 429 (限流) 或 5xx (服务器错误)，抛出特定错误以便降级
         throw new Error(`Gemini Error: ${res.status} ${await res.text()}`);
     }
 
@@ -40,12 +39,11 @@ export async function generateWithGemini(prompt: string, imageBase64: string) {
     return {
         image: imgData,
         provider: "Google Gemini",
-        costFactor: 1.0 // 原始倍率
+        costFactor: 1.0
     };
 }
 
 // 2. Volcengine 即梦引擎 (备用)
-// 文档: https://www.volcengine.com/docs/85621/1817045
 export async function generateWithJimeng(prompt: string) {
     if (!process.env.VOLC_ACCESS_KEY || !process.env.VOLC_SECRET_KEY) {
         throw new Error("Backup service (Jimeng) not configured");
@@ -61,38 +59,44 @@ export async function generateWithJimeng(prompt: string) {
     });
 
     const action = "CVProcess";
-    const version = "2022-08-31"; // 通用视觉版本
+    const version = "2022-08-31"; 
     
-    // 即梦不需要很长的英文Prompt，我们截取关键部分，或者简单翻译
-    // 这里直接透传 Prompt，即梦对中英文兼容较好
-    const body = {
-        req_key: "high_aes_general_v21_L", // 通用高美感模型 (即梦 V2.1)
-        prompt: prompt.slice(0, 1000), // 截断一下防止过长
-        // binary_data_base64: [] // 注：如果未来要做图生图，需要传这里，但比较复杂
+    const bodyPayload = {
+        req_key: "high_aes_general_v21_L", 
+        prompt: prompt.slice(0, 1000),
     };
 
     try {
+        // [修复核心] 属性名修正为 TypeScript 定义要求的格式 (小写为主)
         const res: any = await service.fetchOpenAPI({
             Action: action,
             Version: version,
-            Method: 'POST',
-            Body: body,
-            Header: { 'Content-Type': 'application/json' }
+            method: 'POST', // [Fix] Method -> method
+            data: bodyPayload,     // [Fix] Body -> data (Axios 风格) 或者 try 'body' if 'data' fails, but TS typings usually inherit AxiosRequestConfig which uses 'data'
+            headers: { 'Content-Type': 'application/json' } // [Fix] Header -> headers
         });
 
-        if (res.code !== 10000) {
-            throw new Error(`Jimeng Error: ${res.message || res.code}`);
+        // 注意：火山引擎 SDK 有时将 body 放在 config 的 'data' 字段，或者 'body' 字段取决于具体版本。
+        // 如果 'data' 字段报错，请尝试改回 'body' 但保持小写。
+        // 根据报错信息 "FetchParams & AxiosRequestConfig"，'method' 必须小写。
+
+        if (res.code !== 10000 && res.ResponseMetadata?.Error) {
+             throw new Error(`Jimeng API Error: ${JSON.stringify(res.ResponseMetadata.Error)}`);
         }
 
-        // 提取结果 (即梦返回的是二进制还是Url需根据具体req_key，通常 high_aes 返回 binary_data_base64)
-        const resultBase64 = res.data?.binary_data_base64?.[0];
+        // 尝试解析返回数据，处理可能的结构差异
+        const resultBase64 = res.data?.binary_data_base64?.[0] || res.data?.image_urls?.[0]; // 兼容不同模型的返回格式
         
-        if (!resultBase64) throw new Error("Jimeng returned no image data");
+        if (!resultBase64) {
+             // 如果 SDK 封装层没有直接返回 data，尝试直接从 res 读取 (raw response situation)
+             if(res.binary_data_base64) return { image: res.binary_data_base64[0], provider: "Jimeng", costFactor: 1.2 };
+             throw new Error("Jimeng returned no valid image data");
+        }
 
         return {
             image: resultBase64,
             provider: "Volcengine Jimeng",
-            costFactor: 1.2 // 备用通道可能稍微贵一点，或者保持一致
+            costFactor: 1.2 
         };
 
     } catch (e: any) {

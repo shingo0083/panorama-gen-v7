@@ -42,7 +42,7 @@ export async function generateWithGemini(prompt: string, imageBase64: string) {
     };
 }
 
-// 2. Volcengine 即梦引擎 (适配 V4.0)
+// 2. Volcengine 即梦引擎 (V4.0 修复版)
 export async function generateWithJimeng(prompt: string) {
     const ak = process.env.VOLC_ACCESS_KEY;
     const sk = process.env.VOLC_SECRET_KEY;
@@ -53,57 +53,61 @@ export async function generateWithJimeng(prompt: string) {
 
     // 初始化 SDK
     const service = new Service({
-        host: 'visual.volcengineapi.com',
+        host: 'visual.volcengineapi.com', // 不要加 https://
         serviceName: 'cv',
         region: 'cn-north-1',
         accessKeyId: ak,
         secretKey: sk,
+        protocol: 'https:', // [关键修正] 显式指定协议
+        timeout: 60000,     // 增加超时时间
     });
 
     const action = "CVProcess";
     const version = "2022-08-31"; 
     
     // V4.0 Prompt 优化
-    // 自动追加高质量前缀
     const finalPrompt = `(masterpiece, best quality, 8k, highly detailed), ${prompt}`;
 
-    // [核心修改] V4.0 参数结构
+    // V4.0 参数结构
     const bodyPayload = {
-        req_key: "jimeng_t2i_v40", // [Fix] 更新为 V4.0
+        req_key: "jimeng_t2i_v40",
         prompt: finalPrompt,
-        // 以下参数适配 V4.0 推荐值
         scale: 7.5,
         seed: -1,
-        // binary_data_base64: [], // 纯文生图无需此项
-        // 如果需要控制分辨率，V4.0 接受 extra 字段或特定 key，视具体签约而定
-        // 暂保持默认，模型会自动根据 Prompt 生成合适的比例
+        logo_info: {
+            add_logo: false,
+            position: 0,
+            language: 0,
+            opacity: 0.3
+        }
     };
 
     try {
         console.log("[Jimeng V4] Sending Request...");
         
-        // 使用修正后的大写字段签名逻辑
+        // [关键修正] 使用 query 字段明确传递 Action 和 Version
         const fetchParams: any = {
-            Action: action,
-            Version: version,
-            Method: 'POST',
-            Body: bodyPayload,
-            Header: { 'Content-Type': 'application/json' }
+            query: {
+                Action: action,
+                Version: version,
+            },
+            method: 'POST',
+            data: bodyPayload,
+            headers: { 'Content-Type': 'application/json' }
         };
 
         const res: any = await service.fetchOpenAPI(fetchParams);
 
         if (res.code !== 10000) {
             console.error("Jimeng Error:", JSON.stringify(res));
-            const reqId = res.ResponseMetadata?.RequestId || "Unknown";
+            const reqId = res.ResponseMetadata?.RequestId || res.request_id || "Unknown";
             const msg = res.message || res.ResponseMetadata?.Error?.Message || `Code: ${res.code}`;
             
-            // 权限拦截提示
             if (res.code === 403 || res.ResponseMetadata?.Error?.Code === 'AccessDenied') {
                  throw new Error(`权限不足。请检查火山引擎控制台 [CVFullAccess] 权限。ReqID: ${reqId}`);
             }
 
-            throw new Error(`即梦API错误: ${msg}`);
+            throw new Error(`即梦API错误: ${msg} (${reqId})`);
         }
 
         const resultBase64 = res.data?.binary_data_base64?.[0] || res.data?.image_urls?.[0];

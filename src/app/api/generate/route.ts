@@ -10,13 +10,12 @@ const RequestSchema = z.object({
   image_data: z.string().min(100),
   provider: z.enum(['gemini', 'jimeng']),
   params: z.object({
-    mode: z.enum(['hanfu', 'qipao', 'dark', 'arcade', 'comic', 'general', 'custom']), // [Add custom]
+    mode: z.enum(['hanfu', 'qipao', 'dark', 'arcade', 'comic', 'general', 'custom']), // Added custom
 
-    // ... (Keep existing fields) ...
+    // Custom Fields
+    custom_prompt: z.string().optional(), // Added
 
-    custom_prompt: z.string().optional(), // [New]
-
-    // ... (Keep existing fields) ...
+    // Existing fields
     dynasty: z.string().optional(),
     inner: z.string().optional(),
     items: z.string().optional(),

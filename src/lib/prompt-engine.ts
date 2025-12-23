@@ -33,6 +33,7 @@ export type GenerateParams = {
     custom_prompt?: string;
 };
 
+// 辅助函数
 const sanitize = (str: string | undefined): string => {
     return (str || "").replace(/[^\w\s\u4e00-\u9fa5,.:()-]/g, "").substring(0, 300);
 };
@@ -50,18 +51,13 @@ const getStandardCupDescription = (cup: string = "C Cup") => {
 };
 
 export const PromptBuilder = {
-    // 1. HANFU (Unchanged)
     hanfu: (params: GenerateParams) => {
-        // ... (Same logic as before, omitting to save space) ...
-        // 请保留之前的 hanfu 完整逻辑
         const dynastyKey = params.dynasty || "Ming";
         const d = HANFU_DB[dynastyKey] || HANFU_DB["Ming"];
         const items = sanitize(params.items);
         const innerName = sanitize(params.inner) || (d.inners[0] as any).name;
-        
         let innerDesc = `仅穿着【${innerName}】`;
         let innerLabel = innerName.split(" (")[0];
-        
         if (["诃子","抹胸","主腰","肚兜","心衣"].some(k => innerName.includes(k))) innerDesc += `，并搭配**素色绸缎袴 (Silk Trousers/Ku)**`;
         const itemsPrompt = items.split(',').filter(i => i).map(i => `${i.trim()} (casting distinct shadow on wall)`).join('、') || "无特殊物品";
         const faceInstruction = params.face_desc ? `**Face ID**: ${sanitize(params.face_desc)}. (Strictly maintain this facial identity)` : "完全依照原图 (Strictly lock face features from source image)";
@@ -119,7 +115,6 @@ export const PromptBuilder = {
     },
 
     qipao: (params: GenerateParams) => {
-        // ... (Keep qipao logic) ...
         const styleKey = params.dynasty || "Style01";
         const d = QIPAO_DB[styleKey] || QIPAO_DB["Style01"];
         const accSetKey = params.accessorySet || "A";
@@ -182,7 +177,6 @@ export const PromptBuilder = {
     },
 
     dark: (params: GenerateParams) => {
-        // ... (Keep dark logic) ...
         const roleKey = params.inner || "OL"; 
         const mood = params.pose || "Emotional"; 
         const tagline = params.desc || "Debut / No.1 / Exclusive";
@@ -196,7 +190,7 @@ export const PromptBuilder = {
             cupPhysics = "Slender silhouette. Fabric hangs loosely, emphasizing a delicate frame.";
         } else if (["C Cup", "D Cup"].includes(cup)) {
             cupPhysics = "Natural curves. Fabric fits snugly, creating a balanced and healthy silhouette.";
-        } else { // E/F Cup
+        } else { 
             cupPhysics = "**High-Tension Fabric Mechanics**. The clothing material is visibly **stretched tight**. Emphasize the **visual weight** and heavy drape. Buttons appear under tension due to the fit.";
         }
 
@@ -228,7 +222,6 @@ You MUST overlay complex text elements to mimic a commercial product package:
     },
 
     general: (params: GenerateParams) => {
-        // ... (Keep general logic) ...
         const style = sanitize(params.style) || "2D Concept Art Style"; 
         const inner = sanitize(params.inner) || "Context-based Lingerie";
         const desc = sanitize(params.desc) || "Original Character";
@@ -289,7 +282,6 @@ You MUST overlay complex text elements to mimic a commercial product package:
     },
 
     arcade: (params: GenerateParams) => {
-        // ... (Keep arcade logic) ...
         const role = params.arc_role || "Kunoichi";
         const winPose = params.pose || "Fan Victory";
         const vfx = params.arc_vfx || "None";
@@ -303,7 +295,6 @@ You MUST overlay complex text elements to mimic a commercial product package:
         if (colorMode === "2P") { costumeDesc = arche.outer_2p || "Alternate Color Palette"; }
         if (userDetails) costumeDesc += `. Extra Details: ${userDetails}`;
 
-        // Physics Logic
         let cupPhysics = "";
         if (["A Cup", "B Cup"].includes(cup)) {
             cupPhysics = "**High-Agility Fit**. Costume fits smoothly without strain. Fabric drapes naturally, emphasizing a lightweight, aerodynamic silhouette.";
@@ -353,7 +344,6 @@ You MUST display the **"Safety Measures"** (Undergarments) as **two separate** f
     },
 
     comic: (params: GenerateParams) => {
-        // ... (Keep comic logic) ...
         const role = params.comic_role || "Navigator";
         const pose = params.pose || "Classic";
         const vfx = params.comic_vfx || "None";
@@ -423,24 +413,23 @@ Display the "Under-structure" required for the actress to wear this costume:
 --ar 3:4`;
     },
 
-    // [New] Custom Mode
+    // [New] Custom Mode Strategy
     custom: (params: GenerateParams) => {
-        const userPrompt = sanitize(params.custom_prompt) || "A masterpiece photo.";
-        // Custom Mode Passthrough
-        // We act as a professional enhancer for the user's raw prompt
+        const userPrompt = sanitize(params.custom_prompt) || "Best quality, masterpiece.";
+        
         return `
-# Role: Professional Prompt Optimizer & Photographer
-# Task: Visualize the user's concept with high fidelity.
+# Role: Professional AI Art Director & Concept Artist
+# Task: Execute the user's custom creative prompt with high fidelity.
 
-# User Concept:
+# User Input:
 "${userPrompt}"
 
-# Execution Protocol:
-1. **Style**: Photorealistic (unless specified otherwise in user prompt).
-2. **Quality**: 8k, highly detailed, perfect lighting.
-3. **Face Consistency**: Strictly maintain the face from the input image (if provided).
+# Execution Guidelines:
+1. **Adherence**: Follow the user's prompt strictly.
+2. **Quality Enhancement**: Apply "8k resolution, photorealistic lighting, high detail, masterpiece" styles unless the user specified a conflicting style (like 'sketch' or 'anime').
+3. **Face Consistency**: If a reference image is provided, strictly maintain the facial features and structure.
 
---ar 3:4
-`;
+**Negative**: --no low quality, --no blurry, --no watermark, --no bad anatomy.
+--ar 3:4`;
     }
 };

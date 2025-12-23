@@ -7,6 +7,7 @@ import UploadZone from '@/components/UploadZone';
 import ControlPanel from '@/components/ControlPanel';
 import { ModeType } from '@/lib/constants';
 
+// 默认配置生成器 (增加 custom)
 const getDefaultConfig = (mode: ModeType) => {
   const base = { cup: 'C Cup', body_type: '自动推算', face_desc: '', outer_desc: '', desc: '' };
   switch (mode) {
@@ -15,10 +16,8 @@ const getDefaultConfig = (mode: ModeType) => {
     case 'dark': return { ...base, inner: 'OL', pose: '羞耻特写' };
     case 'arcade': return { ...base, arc_role: 'Kunoichi', arc_color: '1P', arc_vfx: '无 (None)', pose: '💃 胜利: 摇扇弯腰 (Bouncing)' };
     case 'comic': return { ...base, comic_role: 'Navigator', comic_color: 'Anime', comic_vfx: '无 (None)', pose: '😉 招牌: 俏皮眨眼 (Wink)' };
+    case 'custom': return { custom_prompt: "" }; // [New] Custom Defaults
     default: return { ...base, gen_style: '2D Concept Sketch', gen_inner: 'Context-based', pose: 'Standard Standing' };
-      if (mode === 'custom') {
-        return { custom_prompt: "" };
-      }
   }
 };
 
@@ -61,7 +60,8 @@ export default function Home() {
       if (confirm("您尚未登录。\n注册即送 10,000 积分体验，是否前往注册？")) router.push('/register');
       return;
     }
-    if (!imageData) {
+    // Custom 模式允许不上传参考图 (纯文生图)，其他模式必须传图
+    if (mode !== 'custom' && !imageData) {
       alert("请先上传参考图片");
       return;
     }
@@ -76,10 +76,8 @@ export default function Home() {
     setTerminalText(startMsg);
 
     try {
-      // [关键修复] 数据格式化：将前端数组转为后端需要的字符串
+      // 数据清洗：数组转字符串 (针对 Hanfu items)
       const formattedParams = { ...config };
-
-      // 针对汉服模式的 items 数组做转换 ( Array -> String )
       if (Array.isArray(formattedParams.items)) {
         formattedParams.items = formattedParams.items.join(',');
       }
@@ -88,19 +86,18 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          image_data: imageData,
-          params: { mode, ...formattedParams }, // 发送处理过的参数
-          provider: provider
+          image_data: imageData || "", // Custom模式允许空图片
+          provider: provider,
+          params: { mode, ...formattedParams }
         })
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        // [New] 针对参数错误显示详细信息，方便调试
         if (res.status === 400 && data.details) {
           console.error("Validation Details:", data.details);
-          throw new Error("参数格式错误，请检查控制台");
+          throw new Error("参数格式错误，请检查输入");
         }
         if (res.status === 402) {
           if (confirm("余额不足！是否前往控制台充值？")) router.push('/dashboard');
@@ -126,7 +123,7 @@ export default function Home() {
 
   const handleCopy = () => {
     if (!resultImg) return;
-    const safeRecipe = { app_version: "v7.2", mode: mode, settings: config, timestamp: new Date().toLocaleString() };
+    const safeRecipe = { app_version: "v7.3", mode: mode, settings: config, timestamp: new Date().toLocaleString() };
     navigator.clipboard.writeText(JSON.stringify(safeRecipe, null, 2));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -154,7 +151,7 @@ export default function Home() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-6 bg-indigo-600 rounded-full"></div>
-                <h1 className="text-lg font-black tracking-tight text-slate-900">设定装配 V7.2</h1>
+                <h1 className="text-lg font-black tracking-tight text-slate-900">设定装配 V7.3</h1>
               </div>
               {user ? (
                 <div className="flex gap-2">
@@ -171,6 +168,7 @@ export default function Home() {
                 </button>
               )}
             </div>
+
             <select value={mode} onChange={(e) => setMode(e.target.value as ModeType)} className="w-full p-3 font-bold text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm transition-all cursor-pointer hover:border-indigo-300">
               <option value="hanfu">🏮 汉服工坊 (Hanfu)</option>
               <option value="qipao">📻 民国旗袍 (Qipao)</option>
@@ -178,7 +176,7 @@ export default function Home() {
               <option value="comic">✨ 漫改全明星 (Comic)</option>
               <option value="dark">🖤 深夜放映厅 (Dark)</option>
               <option value="general">🌐 通用·概念拆解 (General)</option>
-              <option value="custom">✨ 自由发挥 (Custom)</option>
+              <option value="custom">✨ 自由发挥 (Custom)</option> {/* [New] */}
             </select>
           </div>
 
@@ -226,7 +224,7 @@ export default function Home() {
               {/* 按钮 A: Gemini */}
               <button
                 onClick={() => handleGenerate('gemini')}
-                disabled={loading || !imageData}
+                disabled={loading || (!imageData && mode !== 'custom')}
                 className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-lg font-bold shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Cpu size={18} /> Gemini 渲染
@@ -235,7 +233,7 @@ export default function Home() {
               {/* 按钮 B: Jimeng */}
               <button
                 onClick={() => handleGenerate('jimeng')}
-                disabled={loading || !imageData}
+                disabled={loading || (!imageData && mode !== 'custom')}
                 className="flex-1 bg-rose-500 hover:bg-rose-600 text-white py-3 px-4 rounded-lg font-bold shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Paintbrush size={18} /> 即梦 渲染

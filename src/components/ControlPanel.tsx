@@ -85,7 +85,7 @@ const TextInput = ({ label, placeholder, value, field, onChange, rows = 3 }: any
       onChange={(e) => onChange(field, e.target.value)}
       placeholder={placeholder}
       rows={rows}
-      className={`w-full p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none font-sans`}
+      className="w-full p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none font-sans"
     />
   </div>
 );
@@ -117,21 +117,26 @@ export default function ControlPanel({ mode, config, onChange }: ControlPanelPro
     onChange({ ...config, [field]: value });
   };
 
-  // [新增] 自由发挥模式 UI
+  // [New] Custom UI
   if (mode === 'custom') {
     return (
       <div className="space-y-6">
-        <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-lg text-xs text-indigo-700 leading-relaxed">
-          💡 自由模式：此模式下，Prompt 引擎将停止所有预设干预，直接将您的提示词发送给 AI 引擎。请自行编写完整的描述（推荐英文）。
+        <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-lg">
+          <div className="flex gap-2 items-center text-indigo-700 font-bold text-sm mb-1">
+            ✨ 自由创作模式
+          </div>
+          <p className="text-xs text-indigo-600/80 leading-relaxed">
+            在此模式下，系统不会预设任何 Prompt 结构。请直接输入完整的提示词（推荐英文）。适合粘贴从其他地方（如 Civitai/Midjourney）获取的咒语。
+          </p>
         </div>
 
         <TextInput
-          label="✨ 自由咒语 (Free Prompt)"
+          label="🔮 自由咒语 (Free Prompt)"
           placeholder="例如: A cyberpunk girl walking in rain, neon lights, 8k resolution, photorealistic..."
           value={config.custom_prompt}
           field="custom_prompt"
           onChange={handleChange}
-          rows={10} // 更大的输入框
+          rows={12}
         />
       </div>
     )

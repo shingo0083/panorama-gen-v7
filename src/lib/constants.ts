@@ -4,7 +4,6 @@
 // 1. 类型定义 (Type Definitions)
 // ==========================================
 
-// 汉服/旗袍数据结构
 export interface CostumeData {
     label: string;
     titles?: { poetic: string; style: string };
@@ -15,17 +14,15 @@ export interface CostumeData {
     sets?: Record<string, { n: string; i: string }>;
 }
 
-// 暗黑模式数据结构
 export interface DarkRoleData {
     label: string;
     prompt_ctx: string;
 }
 
-// 街机/漫改模式数据结构
 export interface CharacterData {
     label: string;
-    game_logo?: string; // Arcade uses 'game_logo'
-    logo?: string;      // Comic uses 'logo'
+    game_logo?: string;
+    logo?: string;     
     outer: string;
     outer_2p?: string;
     inner_top: string;
@@ -34,7 +31,6 @@ export interface CharacterData {
     moves?: string[];
 }
 
-// 模式枚举
 export type ModeType = 'hanfu' | 'qipao' | 'dark' | 'arcade' | 'comic' | 'general';
 
 // ==========================================
@@ -120,4 +116,14 @@ export const COMMON = {
         {val: "Anime", txt: "📺 动画配色 (TV Color)"},
         {val: "Manga", txt: "📖 漫画原作 (Black/White/Red)"}
     ]
+};
+
+// [新增] 模式元数据中心 (计费与显示控制)
+export const MODE_METADATA: Record<string, { label: string, tier: 'STANDARD' | 'PREMIUM' }> = {
+    hanfu:   { label: '汉服工坊', tier: 'STANDARD' },
+    qipao:   { label: '民国旗袍', tier: 'STANDARD' },
+    general: { label: '通用概念', tier: 'STANDARD' },
+    dark:    { label: '深夜放映厅', tier: 'PREMIUM' },
+    arcade:  { label: '格斗全明星', tier: 'PREMIUM' },
+    comic:   { label: '漫改全明星', tier: 'PREMIUM' },
 };

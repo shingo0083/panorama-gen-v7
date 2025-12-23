@@ -1,6 +1,37 @@
 import { Service } from "@volcengine/openapi";
 
-// 1. Google Gemini 引擎 (保持不变)
+// --- 辅助函数：即梦专用 Prompt 清洗 ---
+// 即梦对 "Role:", "Task:", "Nudity" 等词非常敏感，需要“脱敏”处理
+function cleanPromptForJimeng(text: string): string {
+    let cleaned = text;
+
+    // 1. 移除 Markdown 标题和元数据行 (只保留视觉描述)
+    // 去掉以 # 或 - 开头的行中包含 Role/Task/Negative 的内容
+    cleaned = cleaned.replace(/^#\s+(Role|Task|Concept|Negative).+$/gm, "");
+    cleaned = cleaned.replace(/--no\s+.+$/g, ""); // 去掉末尾的 --no negative prompt
+    
+    // 2. 敏感词替换/删除 (关键词黑名单)
+    const riskyWords = [
+        "nudity", "naked", "nipples", "genitals", "sex", "porn", "NSFW", "r18",
+        "shameful", "bondage", "fetish", "slave", "abuse", "straining", "bursting",
+        "huge breasts", "voluptuous", "unbuttoned", "disheveled"
+    ];
+    
+    riskyWords.forEach(word => {
+        const regex = new RegExp(word, 'gi');
+        cleaned = cleaned.replace(regex, ""); // 直接删掉敏感词
+    });
+
+    // 3. 格式清理
+    cleaned = cleaned.replace(/\*\*/g, ""); // 去掉加粗
+    cleaned = cleaned.replace(/\n+/g, ", "); // 换行变逗号
+    
+    // 4. 截断 (即梦不支持超长文本)
+    return cleaned.slice(0, 800);
+}
+
+
+// 1. Google Gemini 引擎 (主)
 export async function generateWithGemini(prompt: string, imageBase64: string) {
     const apiKey = process.env.GEMINI_API_KEY;
     const modelId = "gemini-3-pro-image-preview"; 
@@ -42,7 +73,7 @@ export async function generateWithGemini(prompt: string, imageBase64: string) {
     };
 }
 
-// 2. Volcengine 即梦引擎 (Final Logic Fix)
+// 2. Volcengine 即梦引擎 (V4.0 稳定版)
 export async function generateWithJimeng(prompt: string) {
     const ak = process.env.VOLC_ACCESS_KEY;
     const sk = process.env.VOLC_SECRET_KEY;
@@ -51,18 +82,23 @@ export async function generateWithJimeng(prompt: string) {
         throw new Error("即梦API未配置 (Missing VOLC Keys)");
     }
 
+    // [修复 Timeout] 使用 as any 注入超时设置 (100秒)
     const service = new Service({
         host: 'visual.volcengineapi.com',
         serviceName: 'cv',
         region: 'cn-north-1',
         accessKeyId: ak,
         secretKey: sk,
-        protocol: 'https:', // 保持这个，解决 URL Error
-    });
+        protocol: 'https:',
+        timeout: 100000, // [New] 设置 Axios 超时为 100秒
+    } as any);
 
     const action = "CVProcess";
     const version = "2022-08-31"; 
-    const finalPrompt = `(masterpiece, best quality, 8k, highly detailed), ${prompt}`;
+    
+    // [修复风控] 对 Prompt 进行清洗和脱敏
+    const safePrompt = cleanPromptForJimeng(prompt);
+    const finalPrompt = `(masterpiece, best quality, 8k, highly detailed), ${safePrompt}`;
 
     const bodyPayload = {
         req_key: "jimeng_t2i_v40",
@@ -78,17 +114,15 @@ export async function generateWithJimeng(prompt: string) {
     };
 
     try {
-        console.log("[Jimeng V4] Sending Request...");
+        console.log(`[Jimeng V4] Sending Request... Prompt Length: ${finalPrompt.length}`);
         
-        // [核心修正] 
-        // 1. 使用 any 类型绕过 TS 检查，强行传入 Action (大写)
-        // 2. 将 Action/Version 放回根目录
         const fetchParams: any = {
             Action: action,
             Version: version,
-            method: 'POST',        // Axios 需要小写 method
-            data: bodyPayload,     // Axios 需要 data
-            headers: { 'Content-Type': 'application/json' }
+            method: 'POST',
+            data: bodyPayload,
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 100000 // Double check timeout
         };
 
         const res: any = await service.fetchOpenAPI(fetchParams);
@@ -98,9 +132,14 @@ export async function generateWithJimeng(prompt: string) {
             const reqId = res.ResponseMetadata?.RequestId || res.request_id || "Unknown";
             const msg = res.message || res.ResponseMetadata?.Error?.Message || `Code: ${res.code}`;
             
-            if (res.code === 403 || res.ResponseMetadata?.Error?.Code === 'AccessDenied') {
-                 throw new Error(`权限不足。请检查火山引擎控制台 [CVFullAccess] 权限。ReqID: ${reqId}`);
+            // 针对风控的特定提示
+            if (res.code === 50412 || msg.includes("Risk")) {
+                 throw new Error(`内容风控拦截 (Text Risk)。请尝试减少敏感描述或更换模式。`);
             }
+            if (res.code === 403 || res.ResponseMetadata?.Error?.Code === 'AccessDenied') {
+                 throw new Error(`权限不足 (CVFullAccess)。ReqID: ${reqId}`);
+            }
+
             throw new Error(`即梦API错误: ${msg} (${reqId})`);
         }
 
@@ -117,6 +156,10 @@ export async function generateWithJimeng(prompt: string) {
         };
 
     } catch (e: any) {
+        // 捕获 Axios timeout 错误
+        if (e.code === 'ECONNABORTED' || e.message.includes('timeout')) {
+            throw new Error("即梦生成超时 (Timeout)。模型响应过慢，请稍后重试。");
+        }
         console.error("Jimeng SDK Error:", e);
         throw new Error(e.message);
     }

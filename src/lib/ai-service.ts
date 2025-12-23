@@ -42,7 +42,7 @@ export async function generateWithGemini(prompt: string, imageBase64: string) {
     };
 }
 
-// 2. Volcengine 即梦引擎 (修正 TypeScript 错误版)
+// 2. Volcengine 即梦引擎 (Final Logic Fix)
 export async function generateWithJimeng(prompt: string) {
     const ak = process.env.VOLC_ACCESS_KEY;
     const sk = process.env.VOLC_SECRET_KEY;
@@ -51,24 +51,19 @@ export async function generateWithJimeng(prompt: string) {
         throw new Error("即梦API未配置 (Missing VOLC Keys)");
     }
 
-    // 初始化 SDK
     const service = new Service({
         host: 'visual.volcengineapi.com',
         serviceName: 'cv',
         region: 'cn-north-1',
         accessKeyId: ak,
         secretKey: sk,
-        protocol: 'https:', // [关键] 保留这个协议设置，防止 50402 错误
-        // timeout: 60000,  // [移除] 这里的类型定义不支持 timeout，移除以通过编译
+        protocol: 'https:', // 保持这个，解决 URL Error
     });
 
     const action = "CVProcess";
     const version = "2022-08-31"; 
-    
-    // V4.0 Prompt 优化
     const finalPrompt = `(masterpiece, best quality, 8k, highly detailed), ${prompt}`;
 
-    // V4.0 参数结构
     const bodyPayload = {
         req_key: "jimeng_t2i_v40",
         prompt: finalPrompt,
@@ -85,16 +80,15 @@ export async function generateWithJimeng(prompt: string) {
     try {
         console.log("[Jimeng V4] Sending Request...");
         
-        // 构造请求
+        // [核心修正] 
+        // 1. 使用 any 类型绕过 TS 检查，强行传入 Action (大写)
+        // 2. 将 Action/Version 放回根目录
         const fetchParams: any = {
-            query: {
-                Action: action,
-                Version: version,
-            },
-            method: 'POST',
-            data: bodyPayload,
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 60000 // [移到这里] 如果 SDK 支持，Axios配置通常在这里传递；如果不支持也不会报错
+            Action: action,
+            Version: version,
+            method: 'POST',        // Axios 需要小写 method
+            data: bodyPayload,     // Axios 需要 data
+            headers: { 'Content-Type': 'application/json' }
         };
 
         const res: any = await service.fetchOpenAPI(fetchParams);
@@ -107,7 +101,6 @@ export async function generateWithJimeng(prompt: string) {
             if (res.code === 403 || res.ResponseMetadata?.Error?.Code === 'AccessDenied') {
                  throw new Error(`权限不足。请检查火山引擎控制台 [CVFullAccess] 权限。ReqID: ${reqId}`);
             }
-
             throw new Error(`即梦API错误: ${msg} (${reqId})`);
         }
 

@@ -1,7 +1,9 @@
 import { Service } from "@volcengine/openapi";
 
-// 1. Google Gemini 引擎 (主)
+// 1. Google Gemini 引擎
 export async function generateWithGemini(prompt: string, imageBase64: string) {
+    // ... (保持原有的 Gemini 代码不变，为了节省篇幅略去) ...
+    // 请保留您原来的 generateWithGemini 代码
     const apiKey = process.env.GEMINI_API_KEY;
     const modelId = "gemini-3-pro-image-preview"; 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
@@ -28,7 +30,6 @@ export async function generateWithGemini(prompt: string, imageBase64: string) {
 
     const data = await res.json();
     
-    // 安全检查
     if (data.candidates?.[0]?.finishReason === 'SAFETY') {
         throw new Error("Gemini Safety Filter Triggered");
     }
@@ -43,10 +44,18 @@ export async function generateWithGemini(prompt: string, imageBase64: string) {
     };
 }
 
-// 2. Volcengine 即梦引擎 (备用)
+// 2. Volcengine 即梦引擎 (调试增强版)
 export async function generateWithJimeng(prompt: string) {
-    if (!process.env.VOLC_ACCESS_KEY || !process.env.VOLC_SECRET_KEY) {
-        throw new Error("Backup service (Jimeng) not configured");
+    const ak = process.env.VOLC_ACCESS_KEY;
+    const sk = process.env.VOLC_SECRET_KEY;
+
+    // [Debug] 打印密钥掩码，检查是否读取成功
+    console.log("---------------- JIMENG DEBUG ----------------");
+    console.log("AK Exists:", !!ak, ak ? `(${ak.substring(0, 4)}***)` : "NULL");
+    console.log("SK Exists:", !!sk, sk ? `(Length: ${sk.length})` : "NULL");
+    
+    if (!ak || !sk) {
+        throw new Error("即梦API未配置 (Missing VOLC Keys)");
     }
 
     // 初始化火山引擎 SDK
@@ -54,44 +63,48 @@ export async function generateWithJimeng(prompt: string) {
         host: 'visual.volcengineapi.com',
         serviceName: 'cv',
         region: 'cn-north-1',
-        accessKeyId: process.env.VOLC_ACCESS_KEY,
-        secretKey: process.env.VOLC_SECRET_KEY,
+        accessKeyId: ak,
+        secretKey: sk,
     });
 
     const action = "CVProcess";
     const version = "2022-08-31"; 
     
+    // 即梦Prompt限制及翻译优化
+    // 强制追加风格词，确保不走样
+    const optimizedPrompt = `(best quality, 8k, photorealistic:1.2), ${prompt.slice(0, 800)}`;
+
     const bodyPayload = {
         req_key: "high_aes_general_v21_L", 
-        prompt: prompt.slice(0, 1000),
+        prompt: optimizedPrompt,
     };
 
     try {
-        // [修复核心] 属性名修正为 TypeScript 定义要求的格式 (小写为主)
+        console.log("Sending request to Volcengine...");
+        
         const res: any = await service.fetchOpenAPI({
             Action: action,
             Version: version,
-            method: 'POST', // [Fix] Method -> method
-            data: bodyPayload,     // [Fix] Body -> data (Axios 风格) 或者 try 'body' if 'data' fails, but TS typings usually inherit AxiosRequestConfig which uses 'data'
-            headers: { 'Content-Type': 'application/json' } // [Fix] Header -> headers
+            method: 'POST',
+            data: bodyPayload,
+            headers: { 'Content-Type': 'application/json' }
         });
 
-        // 注意：火山引擎 SDK 有时将 body 放在 config 的 'data' 字段，或者 'body' 字段取决于具体版本。
-        // 如果 'data' 字段报错，请尝试改回 'body' 但保持小写。
-        // 根据报错信息 "FetchParams & AxiosRequestConfig"，'method' 必须小写。
-
-        if (res.code !== 10000 && res.ResponseMetadata?.Error) {
-             throw new Error(`Jimeng API Error: ${JSON.stringify(res.ResponseMetadata.Error)}`);
+        // 检查业务层错误
+        if (res.code !== 10000) {
+            console.error("Jimeng Business Error:", JSON.stringify(res));
+            // 提取更详细的错误信息
+            const errMsg = res.message || res.ResponseMetadata?.Error?.Message || `Code: ${res.code}`;
+            throw new Error(`即梦API拒绝请求: ${errMsg}`);
         }
 
-        // 尝试解析返回数据，处理可能的结构差异
-        const resultBase64 = res.data?.binary_data_base64?.[0] || res.data?.image_urls?.[0]; // 兼容不同模型的返回格式
+        const resultBase64 = res.data?.binary_data_base64?.[0] || res.data?.image_urls?.[0];
         
         if (!resultBase64) {
-             // 如果 SDK 封装层没有直接返回 data，尝试直接从 res 读取 (raw response situation)
-             if(res.binary_data_base64) return { image: res.binary_data_base64[0], provider: "Jimeng", costFactor: 1.2 };
-             throw new Error("Jimeng returned no valid image data");
+             throw new Error("即梦返回了空数据 (No image data)");
         }
+
+        console.log("✅ Jimeng generation successful!");
 
         return {
             image: resultBase64,
@@ -100,6 +113,7 @@ export async function generateWithJimeng(prompt: string) {
         };
 
     } catch (e: any) {
-        throw new Error(`Backup generation failed: ${e.message}`);
+        console.error("❌ Jimeng SDK Error:", e);
+        throw new Error(`即梦生成失败: ${e.message}`);
     }
 }

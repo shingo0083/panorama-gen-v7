@@ -79,6 +79,11 @@ export async function POST(req: NextRequest) {
         }
         const { image_data, params } = validation.data;
         const apiKey = process.env.GEMINI_API_KEY;
+        let pureImageData = image_data;
+        if (image_data.startsWith('data:')) {
+            // 自动剔除 data:image/xxx;base64, 前缀
+            pureImageData = image_data.split(',')[1];
+        }
 
         if (!apiKey) return NextResponse.json({ error: "Config Error" }, { status: 500 });
 
@@ -106,11 +111,16 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                // apiyi 节点需要使用 Authorization Header 携带 sk- 令牌
                 'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-                contents: [{ parts: [{ text: promptText }, { inlineData: { mimeType: "image/jpeg", data: image_data } }] }],
+                contents: [{
+                    parts: [
+                        { text: promptText },
+                        // 使用清洗过的 pureImageData
+                        { inlineData: { mimeType: "image/jpeg", data: pureImageData } }
+                    ]
+                }],
                 generationConfig: { temperature: 0.9 }
             })
         });

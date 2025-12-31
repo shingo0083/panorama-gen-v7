@@ -19,18 +19,19 @@ export async function POST(req: Request) {
         const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24小时
 
         // 3. 写入数据库
-        // 使用 upsert: 如果该邮箱已有 token 则更新，没有则创建
-        await prisma.verificationToken.upsert({
-            where: { identifier: email }, // 修正：基于 schema 定义，我们需要确保 logic 正确
-            // Prisma schema 中的 VerificationToken 主键通常比较复杂
-            // 如果你的 schema 是 @@unique([identifier, token])，我们需要先 delete 再 create 比较稳妥
-            update: { token, expires },
-            create: { identifier: email, token, expires }
-        }).catch(async () => {
-            // 备用方案：如果 upsert 失败（主键冲突），先删旧再加新
-            await prisma.verificationToken.deleteMany({ where: { identifier: email } });
-            await prisma.verificationToken.create({ data: { identifier: email, token, expires } });
-        });
+        // 逻辑：为了确保安全和唯一性，先删除该邮箱之前申请的所有重置 token，再创建新的
+        await prisma.$transaction([
+            prisma.verificationToken.deleteMany({
+                where: { identifier: email }
+            }),
+            prisma.verificationToken.create({
+                data: {
+                    identifier: email,
+                    token: token,
+                    expires: expires
+                }
+            })
+        ]);
 
         // 4. [核心修复] 获取当前网站的域名 (Base URL)
         // 优先级：手动配置的 APP_URL > NextAuth URL > Vercel 自动域名 > 本地
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
         const baseUrl = getBaseUrl();
         // 确保 URL 末尾没有斜杠，防止拼接出 //reset
         const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-        
+
         const resetLink = `${cleanBaseUrl}/reset-password?token=${token}`;
 
         console.log(`[Password Reset] Link generated: ${resetLink}`);
@@ -68,9 +69,9 @@ export async function POST(req: Request) {
                 </div>
             </div>
         `;
-        
+
         await sendEmail(email, "【重要】密码重置验证", html);
-        
+
         return NextResponse.json({ success: true });
     } catch (error: any) {
         console.error("Forgot Password Error:", error);

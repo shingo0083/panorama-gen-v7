@@ -93,10 +93,12 @@ export async function POST(req: NextRequest) {
         if (!builder) return NextResponse.json({ error: `Unsupported mode` }, { status: 400 });
         const promptText = builder(params as GenerateParams);
 
-        // 5. [请求 Gemini 3 Pro - 已更换为 Nano Banana 接口]
+        // 5. [请求 Gemini 3 Pro - 适配 apiyi 官方 Native 格式]
         const modelId = "gemini-3-pro-image-preview";
-        // 域名已更改为 api.apiyi.com，鉴权改为 Header 方式，移除 URL 中的 key 参数
         const url = `https://api.apiyi.com/v1beta/models/${modelId}:generateContent`;
+
+        // 5.1 [数据清洗] 自动剥离 Base64 前缀
+        const pureBase64 = image_data.includes(',') ? image_data.split(',')[1] : image_data;
 
         // 来源检查 (生产环境安全层)
         if (process.env.NODE_ENV === 'production') {
@@ -111,17 +113,28 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
+                'Authorization': `Bearer ${apiKey}` // 确保环境变量中已填入 sk-... 
             },
             body: JSON.stringify({
-                contents: [{
-                    parts: [
-                        { text: promptText },
-                        // 使用清洗过的 pureImageData
-                        { inlineData: { mimeType: "image/jpeg", data: pureImageData } }
-                    ]
-                }],
-                generationConfig: { temperature: 0.9 }
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { text: promptText },
+                            {
+                                // 注意：此处必须使用下划线命名法
+                                inline_data: {
+                                    mime_type: "image/jpeg",
+                                    data: pureBase64
+                                }
+                            }
+                        ]
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.9,
+                    // 如果文档有特殊要求，可以在此添加更多参数
+                }
             })
         });
 

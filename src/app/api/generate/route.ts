@@ -83,21 +83,20 @@ export async function POST(req: NextRequest) {
         if (!apiKey) return NextResponse.json({ error: "Config Error" }, { status: 500 });
 
         // 4. [构建Prompt]
-        // 强制类型转换以匹配 keyof typeof PromptBuilder
         const modeKey = params.mode as keyof typeof PromptBuilder;
         const builder = PromptBuilder[modeKey];
         if (!builder) return NextResponse.json({ error: `Unsupported mode` }, { status: 400 });
         const promptText = builder(params as GenerateParams);
 
-        // 5. [请求 Gemini 3 Pro]
+        // 5. [请求 Gemini 3 Pro - 已更换为 Nano Banana 接口]
         const modelId = "gemini-3-pro-image-preview";
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+        // 域名已更改为 api.apiyi.com，鉴权改为 Header 方式，移除 URL 中的 key 参数
+        const url = `https://api.apiyi.com/v1beta/models/${modelId}:generateContent`;
 
         // 来源检查 (生产环境安全层)
         if (process.env.NODE_ENV === 'production') {
             const referer = req.headers.get('referer') || '';
             const origin = req.headers.get('origin') || '';
-            // 🚨 请确保这里的域名与您实际部署的域名一致
             const allowedDomain = 'panorama-gen-v7.vercel.app';
             const isAllowed = referer.includes(allowedDomain) || origin.includes(allowedDomain);
             if (!isAllowed) console.warn(`[Security Warning] Request from ${referer}`);
@@ -105,7 +104,11 @@ export async function POST(req: NextRequest) {
 
         const fetchRes = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                // apiyi 节点需要使用 Authorization Header 携带 sk- 令牌
+                'Authorization': `Bearer ${apiKey}`
+            },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: promptText }, { inlineData: { mimeType: "image/jpeg", data: image_data } }] }],
                 generationConfig: { temperature: 0.9 }
@@ -136,22 +139,17 @@ export async function POST(req: NextRequest) {
         const inputTokens = usage.promptTokenCount || 0;
         const outputTokens = usage.candidatesTokenCount || 0;
 
-        // [策略]：模式差异化定价
         const premiumModes = ['arcade', 'comic', 'dark'];
         const isPremium = premiumModes.includes(params.mode);
 
-        // [策略]：输入/输出分离计价 (基于 1USD ≈ 21428 pts)
         const inputRate = 1.0;
-        const outputRate = isPremium ? 5.0 : 4.0; // 输出加权 x4.0 / x5.0
+        const outputRate = isPremium ? 5.0 : 4.0;
 
-        // 计算总消耗
         let calculatedCost = Math.ceil(
             (inputTokens * inputRate) + (outputTokens * outputRate)
         );
 
-        // [保底机制]
         const minCost = isPremium ? 3500 : 2500;
-        // 🔴 这里的变量名是 finalCost
         const finalCost = Math.max(calculatedCost, minCost);
 
         const updatedUser = await prisma.user.update({
@@ -172,7 +170,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             image_base64: imgBase64,
             generated_prompt: promptText,
-            // 🔴 修复点：这里显式指定键值对 cost: finalCost
             billing: { cost: finalCost, balance: updatedUser.balance }
         });
 
